@@ -2,6 +2,7 @@
 #include <cmath>
 #include <fstream>
 #include <vector>
+#include <cstdlib>
 
 #include <glad/glad.h>
 #include <GLFW/glfw3.h>
@@ -57,6 +58,15 @@ public:
 	Cuboid(GLMatrices *mtx, GLuint textureID, float *color, float x, float y, float z, float length, float width, float height);
   ~Cuboid();
   void draw();
+  void setPosition(float x, float y, float z);
+  float getPosX();
+  float getPosY();
+  float getPosZ();
+  void setVisible(bool value);
+  void setSliding(bool value);
+  bool isVisible();
+  bool isSliding();
+  friend void undergoSliding();
 private:
   GLfloat *vertex_buffer_data;
   GLfloat *color_buffer_data;
@@ -70,9 +80,38 @@ private:
   float length;
   float width;
   float height;
+  bool visible;
+  bool sliding;
+  static const float UPPER_LIMIT = 10.0f;
+  static const float LOWER_LIMIT = -10.0f;
+};
+
+class Player{
+public:
+  Player(GLMatrices *mtx, float x, float y, float z);
+  void draw();
+  void applyForces();
+  void setDynamic(bool value);
+  void applyForces(float timeInstance);
+  void enableMoveLeft();
+  void enableMoveRight();
+  void enableMoveUp();
+  void enableMoveDown();
+  float getPosX();
+  float getPosY();
+  float getPosZ();
+private:
+  Cuboid *cb;
+  float speed;
+  bool move_left;
+  bool move_right;
+  bool move_up;
+  bool move_down;
+  bool dynamic;
 };
 
 Cuboid *cb;
+Player *p;
 vector<Cuboid*> tilesList;
 
 /* Function to load Shaders - Use it as it is */
@@ -571,6 +610,9 @@ Cuboid::Cuboid(GLMatrices *mtx, GLuint textureID, float *color, float x, float y
  texture_buffer_data[22] = 0;   //8
  texture_buffer_data[23] = 1;
 
+ visible = true;
+ sliding = false;
+
  vaobj = create3DTexturedObject(GL_TRIANGLES, 36, vertex_buffer_data, texture_buffer_data, textureID, GL_FILL);
 
 }
@@ -579,6 +621,16 @@ Cuboid::~Cuboid(){
   delete[] vertex_buffer_data;
   delete[] color_buffer_data;
   delete[] texture_buffer_data;
+}
+
+void undergoSliding(){
+  static float factor = 0.5f;
+  for(int i = 0; i < NUM_TILES_ROW * NUM_TILES_COL; i++){
+    if(tilesList[i]->isSliding()){
+      tilesList[i]->y += factor;
+      if(tilesList[i]->y > Cuboid::UPPER_LIMIT || tilesList[i]->y < Cuboid::LOWER_LIMIT)factor *= -1.0f;
+    }
+  }
 }
 
 void Cuboid::draw(){
@@ -594,6 +646,117 @@ void Cuboid::draw(){
   draw3DTexturedObject(vaobj);
 }
 
+void Cuboid::setVisible(bool value){
+  this->visible = value;
+}
+
+
+void Cuboid::setSliding(bool value){
+  this->sliding = value;
+}
+
+bool Cuboid::isVisible(){
+  return this->visible;
+}
+
+bool Cuboid::isSliding(){
+  return this->sliding;
+}
+
+void Cuboid::setPosition(float x, float y, float z){
+  this->x = x;
+  this->y = y;
+  this->z = z;
+}
+
+float Cuboid::getPosX(){
+  return x;
+}
+
+float Cuboid::getPosY(){
+  return y;
+}
+
+float Cuboid::getPosZ(){
+  return z;
+}
+
+Player::Player(GLMatrices *mtx, float x, float y, float z){
+  float *colorCube = new float[3];
+  colorCube[0] = 0;
+  colorCube[1] = 1;//0.412;
+  colorCube[2] = 1;//0.270;
+  GLuint textureId = createTexture("block_pattern.png");
+  // check for an error during the load process
+  if(textureId == 0 )
+    cout << "SOIL loading error: '" << SOIL_last_result() << "'" << endl;
+  cb = new Cuboid(mtx, textureId, colorCube, x, y, z, 2.0f, 2.0f, 2.0f);
+  speed = 1.0f;
+  dynamic = false;
+  move_down = false;
+  move_up = false;
+  move_left = false;
+  move_right = false;
+  delete[] colorCube;
+
+}
+  
+void Player::draw(){
+  cb->draw();
+}
+
+void Player::applyForces(float timeInstance){
+  float tx = getPosX();
+  float ty = getPosY();
+  float tz = getPosZ();
+  if(dynamic){
+    //cout<<"Force applied"<<endl;
+    if(move_up)
+      tz -= speed;
+    else if(move_down)
+      tz += speed;
+    else if(move_right)
+      tx += speed;
+    else if(move_left)
+      tx -= speed;
+    cb->setPosition(tx, ty, tz);
+  }
+}
+
+float Player::getPosX(){
+  return cb->getPosX();
+}
+
+float Player::getPosY(){
+  return cb->getPosY();
+}
+
+float Player::getPosZ(){
+  return cb->getPosZ();
+}
+
+void Player::setDynamic(bool value){
+  dynamic = value;
+  if(!value){
+    move_left = move_right = move_down = move_up = false;
+  }
+}
+
+void Player::enableMoveLeft(){
+  move_left = true;
+}
+
+void Player::enableMoveRight(){
+  move_right = true;
+}
+
+void Player::enableMoveUp(){
+  move_up = true;
+}
+
+void Player::enableMoveDown(){
+  move_down = true;
+}
 
 
 
@@ -614,23 +777,44 @@ void keyboard (GLFWwindow* window, int key, int scancode, int action, int mods)
 
     if (action == GLFW_RELEASE) {
         switch (key) {
-            case GLFW_KEY_C:
-                rectangle_rot_status = !rectangle_rot_status;
+          cout<<"Key release"<<endl;
+          case GLFW_KEY_LEFT:
+                p->setDynamic(false);
                 break;
-            case GLFW_KEY_P:
-                triangle_rot_status = !triangle_rot_status;
-                break;
-            case GLFW_KEY_X:
-                // do something ..
-                break;
+          case GLFW_KEY_RIGHT:
+              p->setDynamic(false);
+              break;
+          case GLFW_KEY_UP:
+              p->setDynamic(false);
+              break;
+          case GLFW_KEY_DOWN:
+              p->setDynamic(false);
+              break;
             default:
                 break;
         }
     }
     else if (action == GLFW_PRESS) {
         switch (key) {
+          cout<<"Key pressed"<<endl;
             case GLFW_KEY_ESCAPE:
                 quit(window);
+                break;
+            case GLFW_KEY_LEFT:
+                p->setDynamic(true);
+                p->enableMoveLeft();
+                break;
+            case GLFW_KEY_RIGHT:
+                p->setDynamic(true);
+                p->enableMoveRight();
+                break;
+            case GLFW_KEY_UP:
+                p->setDynamic(true);
+                p->enableMoveUp();
+                break;
+            case GLFW_KEY_DOWN:
+                p->setDynamic(true);
+                p->enableMoveDown();
                 break;
             default:
                 break;
@@ -924,6 +1108,8 @@ void createScene(){
   // check for an error during the load process
   if(textureId == 0 )
     cout << "SOIL loading error: '" << SOIL_last_result() << "'" << endl;
+  time_t t;
+  srand((unsigned) time(&t));
 
   float *colorCube = new float[3];
   colorCube[0] = 0;
@@ -937,6 +1123,8 @@ void createScene(){
       Cuboid *temp_cuboid = new Cuboid(&Matrices, textureId, colorCube, posX, 0.0f, posZ, length, width, height);
       tilesList.push_back(temp_cuboid);
       posX += width;
+      if(rand()%10 == 3)temp_cuboid->setVisible(false);
+      else if(rand() % 10 == 4)temp_cuboid->setSliding(true);
     }
     posX = 0.0f;
     posZ += length;
@@ -946,7 +1134,7 @@ void createScene(){
 
 void drawScene(){
   for(int i = 0; i < NUM_TILES_ROW * NUM_TILES_COL; i++){
-    tilesList[i]->draw();
+    if(tilesList[i]->isVisible())tilesList[i]->draw();
   }
 
 }
@@ -964,8 +1152,8 @@ void draw ()
     glUseProgram(textureProgramID);
 
   // Eye - Location of camera. Don't change unless you are sure!!
-  glm::vec3 eye ( 5*cos(camera_rotation_angle*M_PI/180.0f), 6, 5*sin(camera_rotation_angle*M_PI/180.0f) );
-  //glm::vec3 eye ( 10, 10, 10 );
+  //glm::vec3 eye ( 5*cos(camera_rotation_angle*M_PI/180.0f), 10, 5*sin(camera_rotation_angle*M_PI/180.0f) );
+  glm::vec3 eye ( -5, 10, -5);
   // Target - Where is the camera looking at.  Don't change unless you are sure!!
   glm::vec3 target (0, 0, 0);
   // Up - Up vector defines tilt of camera.  Don't change unless you are sure!!
@@ -1004,6 +1192,7 @@ void draw ()
 
   //cb->draw();
   drawScene();
+  p->draw();
 
 
 
@@ -1099,6 +1288,11 @@ void initGL (GLFWwindow* window, int width, int height)
   cb = new Cuboid(&Matrices, textureIdTile, colorCube, 0.0f, 0.0f, 0.0f, 5.0f, 5.0f, 8.0f);
   createScene();
 
+  p = new Player(&Matrices, 0.0f, 6.0f, 0.0f);
+
+//Player::Player(GLMatrices *mtx, 
+  //float x, float y, float z){
+
 	
 	// Create and compile our GLSL program from the shaders
 	programID = LoadShaders( "Sample_GL.vert", "Sample_GL.frag" );
@@ -1147,9 +1341,11 @@ int main (int argc, char** argv)
 
         // Control based on time (Time based transformation like 5 degrees rotation every 0.5s)
         current_time = glfwGetTime(); // Time in seconds
-        if ((current_time - last_update_time) >= 0.5) { // atleast 0.5s elapsed since last frame
+        if ((current_time - last_update_time) >= 0.05f) { // atleast 0.5s elapsed since last frame
             // do something every 0.5 seconds ..
             last_update_time = current_time;
+            undergoSliding();
+            p->applyForces(0.05f);
         }
     }
 
