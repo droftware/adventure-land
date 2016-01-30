@@ -25,6 +25,9 @@ float WINDOW_WIDTH = 1300;
 float WINDOW_HEIGHT = 600;
 const int NUM_TILES_ROW = 10;
 const int NUM_TILES_COL = 10;
+const float TILE_WIDTH = 5.0f;
+const float TILE_HEIGHT = 5.0f;
+const float TILE_LENGTH = 5.0f;
 
 struct VAO {
   GLuint VertexArrayID;
@@ -52,20 +55,33 @@ GLMatrices Matrices;
 GLuint programID, fontProgramID, textureProgramID;
 GLint fontVertexCoordAttrib, fontVertexNormalAttrib, fontVertexOffsetUniform;
 
+//forward declarations
+class Villain;
+class Bonus;
 
 class Cuboid{
 public:
-	Cuboid(GLMatrices *mtx, GLuint textureID, float *color, float x, float y, float z, float length, float width, float height);
+	Cuboid(GLMatrices *mtx, GLuint textureID, float *color, float x, float y, float z, float length, float width, float height, int type);
   ~Cuboid();
   void draw();
   void setPosition(float x, float y, float z);
   float getPosX();
   float getPosY();
   float getPosZ();
+  float getMinX();
+  float getMinY();
+  float getMinZ();
+  float getMaxX();
+  float getMaxY();
+  float getMaxZ();
+  float getWidth();
+  float getLength();
+  float getHeight();
   void setVisible(bool value);
   void setSliding(bool value);
   bool isVisible();
   bool isSliding();
+  bool checkCollision(Cuboid &cb);
   friend void undergoSliding();
 private:
   GLfloat *vertex_buffer_data;
@@ -89,9 +105,11 @@ private:
 class Player{
 public:
   Player(GLMatrices *mtx, float x, float y, float z);
+  void setPosition(float x, float y, float z);
   void draw();
   void applyForces();
   void setDynamic(bool value);
+  void jump();
   void applyForces(float timeInstance);
   void enableMoveLeft();
   void enableMoveRight();
@@ -100,19 +118,66 @@ public:
   float getPosX();
   float getPosY();
   float getPosZ();
+  friend bool checkCollisionVillain(Villain &v);
+  friend void simulateCollisionVillain();
+  friend void handleCollisionVillain();
+
+  friend bool checkCollisionBonus(Bonus &b);
+  friend void simulateCollisionBonus();
+  friend void handleCollisionBonus();
 private:
   Cuboid *cb;
-  float speed;
+  Cuboid *barrel;
+  float speedX;
+  float speedY;
+  float jumpTime;
+  float groundY;
   bool move_left;
   bool move_right;
   bool move_up;
   bool move_down;
   bool dynamic;
+  bool inAir;
+  static const float GRAVITY = 20.0f;
+};
+
+class Villain{
+public:
+  Villain(GLMatrices *mtx, float x, float y, float z);
+  void draw();
+  float getPosX();
+  float getPosY();
+  float getPosZ();
+  friend bool checkCollisionVillain(Villain &v);
+  friend void simulateCollisionVillain();
+  friend void handleCollisionVillain();
+private:
+  Cuboid *cb;
+};
+
+class Bonus{
+public:
+  Bonus(GLMatrices *mtx, float x, float y, float z);
+  void draw();
+  float getPosX();
+  float getPosY();
+  float getPosZ();
+  bool isVisible();
+  void setVisible(bool value);
+  friend bool checkCollisionBonus(Bonus &b);
+  friend void simulateCollisionBonus();
+  friend void handleCollisionBonus();
+private:
+  Cuboid *cb;
+  bool visible;
 };
 
 Cuboid *cb;
 Player *p;
 vector<Cuboid*> tilesList;
+vector<Cuboid*> waterList;
+vector<Villain*> villainList;
+vector<Bonus*> bonusList;
 
 /* Function to load Shaders - Use it as it is */
 GLuint LoadShaders(const char * vertex_file_path,const char * fragment_file_path) {
@@ -375,8 +440,13 @@ GLuint createTexture (const char* filename)
   return TextureID;
 }
 
+float calculateDistance(float x1, float y1, float z1, float x2, float y2, float z2){
+  float dist = (x1-x2) * (x1-x2) + (y1-y2)*(y1-y2) + (z1-z1)*(z1-z2);
+  return sqrt(dist);
+}
 
-Cuboid::Cuboid(GLMatrices *mtx, GLuint textureID, float *color, float x, float y, float z, float length, float width, float height)
+
+Cuboid::Cuboid(GLMatrices *mtx, GLuint textureID, float *color, float x, float y, float z, float length, float width, float height, int type)
 {
   vertex_buffer_data = new GLfloat[36*3];
   color_buffer_data = new GLfloat[36*3];
@@ -547,13 +617,13 @@ Cuboid::Cuboid(GLMatrices *mtx, GLuint textureID, float *color, float x, float y
   vertex_buffer_data[82] = tvert[10];
   vertex_buffer_data[83] = tvert[11];	
 
-  vertex_buffer_data[84] = tvert[18];   //7
-  vertex_buffer_data[85] = tvert[19];
-  vertex_buffer_data[86] = tvert[20];	
+  vertex_buffer_data[84] = tvert[21];   //8
+  vertex_buffer_data[85] = tvert[22];   
+  vertex_buffer_data[86] = tvert[23];   
 
-  vertex_buffer_data[87] = tvert[21];   //8
-  vertex_buffer_data[88] = tvert[22];
-  vertex_buffer_data[89] = tvert[23];
+  vertex_buffer_data[87] = tvert[18];   //7
+  vertex_buffer_data[88] = tvert[19];
+  vertex_buffer_data[89] = tvert[20];
 
   //Triangle 11
   vertex_buffer_data[90] = tvert[12];   //5
@@ -609,6 +679,96 @@ Cuboid::Cuboid(GLMatrices *mtx, GLuint textureID, float *color, float x, float y
 
  texture_buffer_data[22] = 0;   //8
  texture_buffer_data[23] = 1;
+
+ if(type == 1){
+  //side 1
+  //tri 1
+  texture_buffer_data[0] = 1;
+  texture_buffer_data[1] = 0;
+
+  texture_buffer_data[2] = 1;
+  texture_buffer_data[3] = 1;
+
+  texture_buffer_data[4] = 0;
+  texture_buffer_data[5] = 1;
+
+  //tri 2
+  texture_buffer_data[6] = 1;
+  texture_buffer_data[7] = 0;
+
+  texture_buffer_data[8] = 0;
+  texture_buffer_data[9] = 0;
+
+  texture_buffer_data[10] = 0;
+  texture_buffer_data[11] = 1;
+
+  //side2
+  //tri 5
+  texture_buffer_data[24] = 1;
+  texture_buffer_data[25] = 0;
+
+  texture_buffer_data[26] = 1;
+  texture_buffer_data[27] = 1;
+
+  texture_buffer_data[28] = 0;
+  texture_buffer_data[29] = 1;
+
+  //tri 6
+  texture_buffer_data[30] = 1;
+  texture_buffer_data[31] = 0;
+
+  texture_buffer_data[32] = 0;
+  texture_buffer_data[33] = 0;
+
+  texture_buffer_data[34] = 0;
+  texture_buffer_data[35] = 1;
+
+  //side 3
+  //tri 9
+  texture_buffer_data[48] = 1;
+  texture_buffer_data[49] = 0;
+
+  texture_buffer_data[50] = 1;
+  texture_buffer_data[51] = 1;
+
+  texture_buffer_data[52] = 0;
+  texture_buffer_data[53] = 1;
+
+  //tri 10
+  texture_buffer_data[54] = 1;
+  texture_buffer_data[55] = 0;
+
+  texture_buffer_data[56] = 0;
+  texture_buffer_data[57] = 0;
+
+  texture_buffer_data[58] = 0;
+  texture_buffer_data[59] = 1;
+
+    //side 4
+  //tri 11
+  texture_buffer_data[60] = 1;
+  texture_buffer_data[61] = 0;
+
+  texture_buffer_data[62] = 1;
+  texture_buffer_data[63] = 1;
+
+  texture_buffer_data[64] = 0;
+  texture_buffer_data[65] = 1;
+
+  //tri 12
+  texture_buffer_data[66] = 1;
+  texture_buffer_data[67] = 0;
+
+  texture_buffer_data[68] = 0;
+  texture_buffer_data[69] = 0;
+
+  texture_buffer_data[70] = 0;
+  texture_buffer_data[71] = 1;
+
+  
+
+
+ }
 
  visible = true;
  sliding = false;
@@ -681,46 +841,134 @@ float Cuboid::getPosZ(){
   return z;
 }
 
+float Cuboid::getMinX(){
+  return x - width/2.0f;
+}
+
+float Cuboid::getMinY(){
+  return y - height/2.0f;
+}
+
+float Cuboid::getMinZ(){
+  return z - length/2.0f;
+}
+
+float Cuboid::getMaxX(){
+  return x + width/2.0f;
+}
+
+float Cuboid::getMaxY(){
+  return y + height/2.0f;
+}
+
+float Cuboid::getMaxZ(){
+  return z + length/2.0f;
+}
+
+
+float Cuboid::getWidth(){
+  return width;
+}
+
+float Cuboid::getLength(){
+  return length;
+}
+
+float Cuboid::getHeight(){
+  return height;
+}
+
+bool Cuboid::checkCollision(Cuboid &cb){
+  if(getMinX() <= cb.getMaxX() && getMaxX() >= cb.getMinX() &&
+     getMinY() <= cb.getMaxY() && getMaxY() >= cb.getMinY() &&
+     getMinZ() <= cb.getMaxZ() && getMaxZ() >= cb.getMinZ()
+    )return true;
+  else return false;
+}
+
 Player::Player(GLMatrices *mtx, float x, float y, float z){
   float *colorCube = new float[3];
   colorCube[0] = 0;
   colorCube[1] = 1;//0.412;
   colorCube[2] = 1;//0.270;
-  GLuint textureId = createTexture("block_pattern.png");
+  GLuint textureId = createTexture("box.png");
   // check for an error during the load process
   if(textureId == 0 )
     cout << "SOIL loading error: '" << SOIL_last_result() << "'" << endl;
-  cb = new Cuboid(mtx, textureId, colorCube, x, y, z, 2.0f, 2.0f, 2.0f);
-  speed = 1.0f;
+  cb = new Cuboid(mtx, textureId, colorCube, x, y, z, 4.0f, 4.0f, 4.0f, 1);
+  barrel = new Cuboid(mtx, textureId, colorCube, x, y, z, 1.0f, 7.0f, 1.0f, 1);
+  groundY = y;
+  speedX = 1.0f;
+  speedY = 6.0f;
+  jumpTime = 0.0f;
   dynamic = false;
   move_down = false;
   move_up = false;
   move_left = false;
   move_right = false;
+  inAir = false;
   delete[] colorCube;
 
+}
+
+void Player::jump(){
+  if(!inAir){
+    inAir = true;
+    jumpTime = 0.0f;
+  }
 }
   
 void Player::draw(){
   cb->draw();
+  barrel->draw();
+}
+
+void Player::setPosition(float x, float y, float z){
+  cb->setPosition(x, y, z);
+  barrel->setPosition(x, y, z);
 }
 
 void Player::applyForces(float timeInstance){
   float tx = getPosX();
   float ty = getPosY();
   float tz = getPosZ();
+  float width = TILE_WIDTH;
+  float length = TILE_LENGTH;
+  int tileRowNum = (int)floor(tx/width);
+  int tileColNum = (int)floor(tz/length);
+  int tileIndex = tileColNum * NUM_TILES_COL + tileRowNum;
+  if(tileIndex>=0 && tileIndex < NUM_TILES_ROW*NUM_TILES_COL && !tilesList[tileIndex]->isVisible() && !inAir){
+    cout<<"Standing on an empty tile"<<endl;
+    setPosition(0.0f,groundY,0.0f);
+    return;
+  }
+  cout<<"Row Num: "<<tileRowNum<<endl;
+  cout<<"Col Num: "<<tileColNum<<endl;
+  cout<<"Index: "<<tileIndex<<endl;
   if(dynamic){
     //cout<<"Force applied"<<endl;
     if(move_up)
-      tz -= speed;
-    else if(move_down)
-      tz += speed;
-    else if(move_right)
-      tx += speed;
-    else if(move_left)
-      tx -= speed;
-    cb->setPosition(tx, ty, tz);
+      tz -= speedX;
+    if(move_down)
+      tz += speedX;
+    if(move_right)
+      tx += speedX;
+    if(move_left)
+      tx -= speedX;
+    setPosition(tx, ty, tz);
   }
+  if(inAir){
+    jumpTime += timeInstance;
+    ty += speedY * jumpTime - (0.5 * GRAVITY * jumpTime *jumpTime);
+    setPosition(tx, ty, tz);
+    if(ty <= groundY){
+      ty = groundY;
+      setPosition(tx, ty, tz);
+      jumpTime = 0.0f;
+      inAir = false;
+    }
+  }
+
 }
 
 float Player::getPosX(){
@@ -756,6 +1004,111 @@ void Player::enableMoveUp(){
 
 void Player::enableMoveDown(){
   move_down = true;
+}
+
+Villain::Villain(GLMatrices *mtx, float x, float y, float z){
+  float *colorCube = new float[3];
+  colorCube[0] = 0;
+  colorCube[1] = 1;//0.412;
+  colorCube[2] = 1;//0.270;
+  GLuint textureId = createTexture("oandb.png");
+  // check for an error during the load process
+  if(textureId == 0 )
+    cout << "SOIL loading error: '" << SOIL_last_result() << "'" << endl;
+  cb = new Cuboid(mtx, textureId, colorCube, x, y, z, 2.0f, 2.0f, 2.0f, 1);
+  delete[] colorCube;
+}
+
+void Villain::draw(){
+  cb->draw();
+}
+float Villain::getPosX(){
+  return cb->getPosX();
+}
+
+float Villain::getPosY(){
+  return cb->getPosY();
+
+}
+float Villain::getPosZ(){
+  return cb->getPosZ();
+}
+
+Bonus::Bonus(GLMatrices *mtx, float x, float y, float z){
+  float *colorCube = new float[3];
+  colorCube[0] = 0;
+  colorCube[1] = 1;//0.412;
+  colorCube[2] = 1;//0.270;
+  GLuint textureId = createTexture("gold.png");
+  // check for an error during the load process
+  if(textureId == 0 )
+    cout << "SOIL loading error: '" << SOIL_last_result() << "'" << endl;
+  cb = new Cuboid(mtx, textureId, colorCube, x, y, z, 2.0f, 2.0f, 2.0f, 1);
+  delete[] colorCube;
+}
+
+void Bonus::draw(){
+  if(visible)
+    cb->draw();
+}
+
+float Bonus::getPosX(){
+  cb->getPosX();
+}
+
+float Bonus::getPosY(){
+  cb->getPosY();
+}
+
+float Bonus::getPosZ(){
+  cb->getPosZ();
+}
+
+bool Bonus::isVisible(){
+  return visible;
+}
+
+void Bonus::setVisible(bool value){
+  this->visible = value;
+}
+
+bool checkCollisionVillain(Villain &v){
+  return p->cb->checkCollision(*(v.cb));
+}
+
+void simulateCollisionVillain(){
+  p->setPosition(0.0f,6.0f,0.0f);
+}
+
+void handleCollisionVillain(){
+  for(int i = 0; i < villainList.size(); i++){
+    if(checkCollisionVillain(*villainList[i]))
+      {
+        cout<<"Collision happened:Villain"<<endl;
+        simulateCollisionVillain();
+      }
+  }
+}
+
+bool checkCollisionBonus(Bonus &b){
+   if(b.visible)
+    return p->cb->checkCollision(*(b.cb));
+  else return false;
+}
+
+void simulateCollisionBonus(Bonus &b){
+  b.setVisible(false);
+}
+
+void handleCollisionBonus(){
+  for(int i = 0; i < bonusList.size(); i++){
+    if(checkCollisionBonus(*bonusList[i]))
+      {
+        cout<<"Collision happened: Bonus"<<endl;
+        simulateCollisionBonus(*bonusList[i]);
+      }
+  }
+
 }
 
 
@@ -815,6 +1168,9 @@ void keyboard (GLFWwindow* window, int key, int scancode, int action, int mods)
             case GLFW_KEY_DOWN:
                 p->setDynamic(true);
                 p->enableMoveDown();
+                break;
+            case GLFW_KEY_SPACE:
+                p->jump();
                 break;
             default:
                 break;
@@ -1102,8 +1458,7 @@ float rectangle_rotation = 0;
 float triangle_rotation = 0;
 
 void createScene(){
-  //  Cuboid(GLMatrices *mtx, GLuint textureID, float *color, 
-  //float x, float y, float z, float length, float width, float height);
+  int i,j;
   GLuint textureId = createTexture("tile1.png");
   // check for an error during the load process
   if(textureId == 0 )
@@ -1111,30 +1466,102 @@ void createScene(){
   time_t t;
   srand((unsigned) time(&t));
 
+  GLuint textureWaterId = createTexture("water2.png");
+  // check for an error during the load process
+  if(textureWaterId == 0 )
+    cout << "SOIL loading error: '" << SOIL_last_result() << "'" << endl;
+
   float *colorCube = new float[3];
   colorCube[0] = 0;
   colorCube[1] = 1;//0.412;
   colorCube[2] = 1;//0.270;
-  float posX , posZ , width, height, length;
+  float posX , posZ , width = TILE_WIDTH, height = TILE_HEIGHT, length = TILE_LENGTH;
+  Cuboid *temp_cuboid;
   posX = posZ = 0.0f;
-  width = height = length = 5.0f;
-  for(int i = 0; i < NUM_TILES_ROW; i++){
-    for(int j = 0; j < NUM_TILES_COL; j++){
-      Cuboid *temp_cuboid = new Cuboid(&Matrices, textureId, colorCube, posX, 0.0f, posZ, length, width, height);
+  for(i = 0; i < NUM_TILES_ROW; i++){
+    for(j = 0; j < NUM_TILES_COL; j++){
+      temp_cuboid = new Cuboid(&Matrices, textureId, colorCube, posX, 0.0f, posZ, length, width, height, 0);
       tilesList.push_back(temp_cuboid);
       posX += width;
-      if(rand()%10 == 3)temp_cuboid->setVisible(false);
-      else if(rand() % 10 == 4)temp_cuboid->setSliding(true);
+      if(rand() % 5 ==0 && tilesList.size()!=1)temp_cuboid->setVisible(false);
+      //else if(rand() % 10 == 4)temp_cuboid->setSliding(true);
     }
     posX = 0.0f;
     posZ += length;
   }
+
+
+
+  //Water area bottom
+  posX = 0.0f - 3*width;
+  posZ = 0.0f - length;
+  for(i = 0; i < NUM_TILES_ROW; i++){
+    for(j = 0; j < NUM_TILES_COL + 6; j++){
+      temp_cuboid = new Cuboid(&Matrices, textureWaterId, colorCube, posX, 0.0f, posZ, length, width, height, 0);
+      waterList.push_back(temp_cuboid);
+      posX += width;
+    }
+    posX = 0.0f - 3*width;
+    posZ -= length;
+  }
+
+  //Water area top
+  posX = 0.0f - 3*width;
+  posZ = 0.0f + length * (NUM_TILES_ROW+1);
+  for(i = 0; i < NUM_TILES_ROW; i++){
+    for(j = 0; j < NUM_TILES_COL + 6; j++){
+      temp_cuboid = new Cuboid(&Matrices, textureWaterId, colorCube, posX, 0.0f, posZ, length, width, height, 0);
+      waterList.push_back(temp_cuboid);
+      posX += width;
+    }
+    posX = 0.0f - 3*width;
+    posZ += length;
+  }
+
+  //Water area left
+  posX = 0.0f - width;
+  posZ = 0.0f;
+  for(i = 0; i < 3; i++){
+    for(j = 0; j < NUM_TILES_ROW + 1; j++){
+      temp_cuboid = new Cuboid(&Matrices, textureWaterId, colorCube, posX, 0.0f, posZ, length, width, height, 0);
+      waterList.push_back(temp_cuboid);
+      posZ += length;
+    }
+    posZ = 0.0f;
+    posX -= width;
+  }
+
+  //Water area right
+  posX = 0.0f + width * (NUM_TILES_COL);
+  posZ = 0.0f;
+  for(i = 0; i < 3; i++){
+    for(j = 0; j < NUM_TILES_ROW + 1; j++){
+      temp_cuboid = new Cuboid(&Matrices, textureWaterId, colorCube, posX, 0.0f, posZ, length, width, height, 0);
+      waterList.push_back(temp_cuboid);
+      posZ += length;
+    }
+    posZ = 0.0f;
+    posX += width;
+  }
+
+
+
   delete[] colorCube;
 }
 
 void drawScene(){
-  for(int i = 0; i < NUM_TILES_ROW * NUM_TILES_COL; i++){
+  int i;
+  for(i = 0; i < NUM_TILES_ROW * NUM_TILES_COL; i++){
     if(tilesList[i]->isVisible())tilesList[i]->draw();
+  }
+  for(i = 0; i < waterList.size(); i++){
+    waterList[i]->draw();
+  }
+  for(i = 0; i < villainList.size(); i++){
+    villainList[i]->draw();
+  }
+  for(i = 0; i < bonusList.size(); i++){
+    bonusList[i]->draw();
   }
 
 }
@@ -1152,10 +1579,12 @@ void draw ()
     glUseProgram(textureProgramID);
 
   // Eye - Location of camera. Don't change unless you are sure!!
-  //glm::vec3 eye ( 5*cos(camera_rotation_angle*M_PI/180.0f), 10, 5*sin(camera_rotation_angle*M_PI/180.0f) );
-  glm::vec3 eye ( -5, 10, -5);
+  glm::vec3 eye ( 5*cos(camera_rotation_angle*M_PI/180.0f), 9, 5*sin(camera_rotation_angle*M_PI/180.0f) );
+  //glm::vec3 eye ( p->getPosX() + 6.0f, p->getPosY() + 6.0f, p->getPosZ() + 6.0f);
+    //glm::vec3 eye ( p->getPosX() , p->getPosY() + 10, p->getPosZ());
   // Target - Where is the camera looking at.  Don't change unless you are sure!!
-  glm::vec3 target (0, 0, 0);
+  //glm::vec3 target (0, 0, 0);
+  glm::vec3 target ( p->getPosX(), p->getPosY(), p->getPosZ());
   // Up - Up vector defines tilt of camera.  Don't change unless you are sure!!
   glm::vec3 up (0, 1, 0);
 
@@ -1220,7 +1649,7 @@ GLFWwindow* initGLFW (int width, int height)
     glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
 
-    window = glfwCreateWindow(width, height, "Sample OpenGL 3.3 Application", NULL, NULL);
+    window = glfwCreateWindow(width, height, "The Box Machine", NULL, NULL);
 
     if (!window) {
         glfwTerminate();
@@ -1285,8 +1714,14 @@ void initGL (GLFWwindow* window, int width, int height)
   colorCube[1] = 1;//0.412;
   colorCube[2] = 1;//0.270;
   //Cuboid(GLMatrices *mtx, GLuint textureID, float *color, float x, float y, float z, float length, float width, float height);
-  cb = new Cuboid(&Matrices, textureIdTile, colorCube, 0.0f, 0.0f, 0.0f, 5.0f, 5.0f, 8.0f);
+  //cb = new Cuboid(&Matrices, textureIdTile, colorCube, 0.0f, 0.0f, 0.0f, 5.0f, 5.0f, 8.0f, 0);
   createScene();
+
+  Villain *v1 = new Villain(&Matrices, 10.0f, 6.0f, 10.0f);
+  villainList.push_back(v1);
+
+  Bonus *b1 = new Bonus(&Matrices, 20.0f, 6.0f, 30.0f);
+  bonusList.push_back(b1);
 
   p = new Player(&Matrices, 0.0f, 6.0f, 0.0f);
 
@@ -1346,6 +1781,8 @@ int main (int argc, char** argv)
             last_update_time = current_time;
             undergoSliding();
             p->applyForces(0.05f);
+            handleCollisionVillain();
+            handleCollisionBonus();
         }
     }
 
