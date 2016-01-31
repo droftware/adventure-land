@@ -77,6 +77,8 @@ public:
   float getWidth();
   float getLength();
   float getHeight();
+  float getAngle();
+  void setAngle(float angle);
   void setVisible(bool value);
   void setSliding(bool value);
   bool isVisible();
@@ -90,6 +92,9 @@ private:
   GLuint textureID;
   GLMatrices *mtx;
   VAO *vaobj;
+  float initX;
+  float initY;
+  float initZ;
   float x;
   float y;
   float z;
@@ -98,6 +103,8 @@ private:
   float height;
   bool visible;
   bool sliding;
+  glm::vec3 axis;
+  float angle;
   static const float UPPER_LIMIT = 10.0f;
   static const float LOWER_LIMIT = -10.0f;
 };
@@ -115,6 +122,13 @@ public:
   void enableMoveRight();
   void enableMoveUp();
   void enableMoveDown();
+  void barrelLeft();
+  void barrelRight();
+  int getScore();
+  void increaseSpeed();
+  void decreaseSpeed();
+  void incrementScore();
+  void decrementLife();
   float getPosX();
   float getPosY();
   float getPosZ();
@@ -138,6 +152,8 @@ private:
   bool move_down;
   bool dynamic;
   bool inAir;
+  int score;
+  int life;
   static const float GRAVITY = 20.0f;
 };
 
@@ -172,12 +188,23 @@ private:
   bool visible;
 };
 
+class Bullet{
+public:
+  Bullet(GLMatrices *mtx, float x, float y, float z, float ux, float uz);
+private:
+  Cuboid *cb;
+  float ux;
+  float uz;
+  bool visible;
+};
+
 Cuboid *cb;
 Player *p;
 vector<Cuboid*> tilesList;
 vector<Cuboid*> waterList;
 vector<Villain*> villainList;
 vector<Bonus*> bonusList;
+int viewMode;
 
 /* Function to load Shaders - Use it as it is */
 GLuint LoadShaders(const char * vertex_file_path,const char * fragment_file_path) {
@@ -453,12 +480,17 @@ Cuboid::Cuboid(GLMatrices *mtx, GLuint textureID, float *color, float x, float y
   texture_buffer_data = new GLfloat[36 * 2];
   this->textureID = textureID;
   this->mtx  = mtx;
+  this->initX = x;
+  this->initZ = z;
+  this->initY = y;
   this->x = x;
   this->y = y;
   this->z = z;
   this->length = length;
   this->width = width;
   this->height = height;
+  this->axis = glm::vec3(0.0f,1.0f,0.0f);
+  this->angle = 0.0f;
   float tvert[8*3];
 
   tvert[0] = width/2.0f;	//1
@@ -796,15 +828,25 @@ void undergoSliding(){
 void Cuboid::draw(){
   glm::mat4 MVP;
   mtx->model = glm::mat4(1.0f);
-  glm::mat4 translateCube = glm::translate(glm::vec3(x, y, z));  
-  //glm::mat4 rotateCube = glm::rotate((float)(cube_rotation*M_PI/180.0f), glm::vec3(0,0,1)); // rotate about vector (-1,1,1)
-  mtx->model *= (translateCube);
+  glm::mat4 translateCube = glm::translate(glm::vec3(x, y, z)); 
+  glm::mat4 t1 = glm::translate(glm::vec3(initX, initY, initZ)); 
+  glm::mat4 rotateCube = glm::rotate((float)(angle*M_PI/180.0f), axis); // rotate about vector (-1,1,1)
+  mtx->model *= ( translateCube * rotateCube );
   MVP =  mtx->projection * mtx->view * mtx->model; // MVP = p * V * M
   //  Don't change unless you are sure!!
   glUniformMatrix4fv(mtx->TexMatrixID, 1, GL_FALSE, &MVP[0][0]);
   glUniform1i(glGetUniformLocation(textureProgramID, "texSampler"), 0);
   draw3DTexturedObject(vaobj);
 }
+
+void Cuboid::setAngle(float angle){
+  this->angle = angle;
+}
+
+float Cuboid::getAngle(){
+  return angle;
+}
+
 
 void Cuboid::setVisible(bool value){
   this->visible = value;
@@ -892,11 +934,13 @@ Player::Player(GLMatrices *mtx, float x, float y, float z){
   colorCube[1] = 1;//0.412;
   colorCube[2] = 1;//0.270;
   GLuint textureId = createTexture("box.png");
+  this->score = 0;
+  this->life = 3;
   // check for an error during the load process
   if(textureId == 0 )
     cout << "SOIL loading error: '" << SOIL_last_result() << "'" << endl;
   cb = new Cuboid(mtx, textureId, colorCube, x, y, z, 4.0f, 4.0f, 4.0f, 1);
-  barrel = new Cuboid(mtx, textureId, colorCube, x, y, z, 1.0f, 7.0f, 1.0f, 1);
+  barrel = new Cuboid(mtx, textureId, colorCube, x , y, z , 1.0f, 7.0f, 1.0f, 1);
   groundY = y;
   speedX = 1.0f;
   speedY = 6.0f;
@@ -925,7 +969,23 @@ void Player::draw(){
 
 void Player::setPosition(float x, float y, float z){
   cb->setPosition(x, y, z);
-  barrel->setPosition(x, y, z);
+  barrel->setPosition(x , y, z);
+}
+
+void Player::barrelLeft(){
+  float currentAngle = barrel->getAngle();
+  currentAngle += 2.0f;
+  barrel->setAngle(currentAngle);
+}
+
+void Player::barrelRight(){
+  float currentAngle = barrel->getAngle();
+  currentAngle -= 2.0f;
+  barrel->setAngle(currentAngle);
+}
+
+int Player::getScore(){
+  return score;
 }
 
 void Player::applyForces(float timeInstance){
@@ -938,13 +998,13 @@ void Player::applyForces(float timeInstance){
   int tileColNum = (int)floor(tz/length);
   int tileIndex = tileColNum * NUM_TILES_COL + tileRowNum;
   if(tileIndex>=0 && tileIndex < NUM_TILES_ROW*NUM_TILES_COL && !tilesList[tileIndex]->isVisible() && !inAir){
-    cout<<"Standing on an empty tile"<<endl;
+    //cout<<"Standing on an empty tile"<<endl;
     setPosition(0.0f,groundY,0.0f);
     return;
   }
-  cout<<"Row Num: "<<tileRowNum<<endl;
-  cout<<"Col Num: "<<tileColNum<<endl;
-  cout<<"Index: "<<tileIndex<<endl;
+  //cout<<"Row Num: "<<tileRowNum<<endl;
+  //cout<<"Col Num: "<<tileColNum<<endl;
+  //cout<<"Index: "<<tileIndex<<endl;
   if(dynamic){
     //cout<<"Force applied"<<endl;
     if(move_up)
@@ -971,6 +1031,14 @@ void Player::applyForces(float timeInstance){
 
 }
 
+void Player::incrementScore(){
+  score++;
+}
+
+void Player::decrementLife(){
+  life--;
+}
+
 float Player::getPosX(){
   return cb->getPosX();
 }
@@ -988,6 +1056,18 @@ void Player::setDynamic(bool value){
   if(!value){
     move_left = move_right = move_down = move_up = false;
   }
+}
+
+void Player::increaseSpeed(){
+  speedX += 1.0f;
+  if(speedX > 5.0f)
+    speedX = 5.0f;
+}
+
+void Player::decreaseSpeed(){
+  speedX -= 1.0f;
+  if(speedX < 0.0f)
+    speedX = 0.0f;
 }
 
 void Player::enableMoveLeft(){
@@ -1036,6 +1116,7 @@ float Villain::getPosZ(){
 
 Bonus::Bonus(GLMatrices *mtx, float x, float y, float z){
   float *colorCube = new float[3];
+  visible = true;
   colorCube[0] = 0;
   colorCube[1] = 1;//0.412;
   colorCube[2] = 1;//0.270;
@@ -1071,6 +1152,23 @@ bool Bonus::isVisible(){
 void Bonus::setVisible(bool value){
   this->visible = value;
 }
+
+Bullet::Bullet(GLMatrices *mtx, float x, float y, float z, float ux, float uz){
+  float *colorCube = new float[3];
+  colorCube[0] = 0;
+  colorCube[1] = 1;//0.412;
+  colorCube[2] = 1;//0.270;
+  this->ux = ux;
+  this->uz = uz;
+  GLuint textureId = createTexture("fire.png");
+  // check for an error during the load process
+  if(textureId == 0 )
+    cout << "SOIL loading error: '" << SOIL_last_result() << "'" << endl;
+  cb = new Cuboid(mtx, textureId, colorCube, x, y, z, 1.0f, 1.0f, 1.0f, 1);
+  delete[] colorCube;
+}
+
+
 
 bool checkCollisionVillain(Villain &v){
   return p->cb->checkCollision(*(v.cb));
@@ -1172,6 +1270,29 @@ void keyboard (GLFWwindow* window, int key, int scancode, int action, int mods)
             case GLFW_KEY_SPACE:
                 p->jump();
                 break;
+            case GLFW_KEY_L:
+              p->barrelLeft();
+              break;
+            case GLFW_KEY_R:
+              p->barrelRight();
+              break;
+            case GLFW_KEY_F:
+              p->increaseSpeed();
+              break;
+            case GLFW_KEY_S:
+              p->decreaseSpeed();
+              break;
+            case GLFW_KEY_F1:
+              viewMode = 0;
+              break;
+            case GLFW_KEY_F2:
+              viewMode = 1;
+              break;
+            case GLFW_KEY_F3:
+              viewMode = 2;
+              break;
+
+
             default:
                 break;
         }
@@ -1507,7 +1628,7 @@ void createScene(){
 
   //Water area top
   posX = 0.0f - 3*width;
-  posZ = 0.0f + length * (NUM_TILES_ROW+1);
+  posZ = 0.0f + length * (NUM_TILES_ROW);
   for(i = 0; i < NUM_TILES_ROW; i++){
     for(j = 0; j < NUM_TILES_COL + 6; j++){
       temp_cuboid = new Cuboid(&Matrices, textureWaterId, colorCube, posX, 0.0f, posZ, length, width, height, 0);
@@ -1562,6 +1683,7 @@ void drawScene(){
   }
   for(i = 0; i < bonusList.size(); i++){
     bonusList[i]->draw();
+    cout<<"Bonus drawn:-> "<<i<<endl;
   }
 
 }
@@ -1578,15 +1700,32 @@ void draw ()
   //glUseProgram (programID);
     glUseProgram(textureProgramID);
 
+  glm::vec3 eye;
+  glm::vec3 target;
+  glm::vec3 up( 0, 1, 0);
+
+
+  if(viewMode == 0){
+    eye = glm::vec3( p->getPosX() + 6.0f, p->getPosY() + 6.0f, p->getPosZ() + 6.0f);
+    target = glm::vec3(p->getPosX(), p->getPosY(), p->getPosZ());
+  }
+  else if(viewMode == 1){
+    eye = glm::vec3( -5, 23, -5);
+    target = glm::vec3(25,0,25);
+  }
+  else if(viewMode == 2){
+    eye = glm::vec3( TILE_WIDTH * NUM_TILES_ROW/2.0f , 25, TILE_LENGTH * NUM_TILES_COL/2.0f);
+    target = glm::vec3(TILE_WIDTH * NUM_TILES_ROW/2.0f -1, 0, TILE_LENGTH * NUM_TILES_COL/2.0f - 1);
+  }
   // Eye - Location of camera. Don't change unless you are sure!!
-  glm::vec3 eye ( 5*cos(camera_rotation_angle*M_PI/180.0f), 9, 5*sin(camera_rotation_angle*M_PI/180.0f) );
+  //glm::vec3 eye ( 5*cos(camera_rotation_angle*M_PI/180.0f), 9, 5*sin(camera_rotation_angle*M_PI/180.0f) );
   //glm::vec3 eye ( p->getPosX() + 6.0f, p->getPosY() + 6.0f, p->getPosZ() + 6.0f);
     //glm::vec3 eye ( p->getPosX() , p->getPosY() + 10, p->getPosZ());
   // Target - Where is the camera looking at.  Don't change unless you are sure!!
   //glm::vec3 target (0, 0, 0);
-  glm::vec3 target ( p->getPosX(), p->getPosY(), p->getPosZ());
+  //glm::vec3 target ( p->getPosX(), p->getPosY(), p->getPosZ());
   // Up - Up vector defines tilt of camera.  Don't change unless you are sure!!
-  glm::vec3 up (0, 1, 0);
+
 
   // Compute Camera matrix (view)
   Matrices.view = glm::lookAt( eye, target, up ); // Rotating Camera for 3D
@@ -1720,8 +1859,20 @@ void initGL (GLFWwindow* window, int width, int height)
   Villain *v1 = new Villain(&Matrices, 10.0f, 6.0f, 10.0f);
   villainList.push_back(v1);
 
+  Villain *v2 = new Villain(&Matrices, 20.0f, 6.0f, 23.0f);
+  villainList.push_back(v2);
+
+  Villain *v3 = new Villain(&Matrices, 5.0f, 6.0f, 30.0f);
+  villainList.push_back(v3);
+
   Bonus *b1 = new Bonus(&Matrices, 20.0f, 6.0f, 30.0f);
   bonusList.push_back(b1);
+
+  Bonus *b2 = new Bonus(&Matrices, 40.0f, 6.0f, 40.0f);
+  bonusList.push_back(b2);
+
+  Bonus *b3 = new Bonus(&Matrices, 30.0f, 6.0f, 10.0f);
+  bonusList.push_back(b3);
 
   p = new Player(&Matrices, 0.0f, 6.0f, 0.0f);
 
@@ -1755,6 +1906,7 @@ int main (int argc, char** argv)
 {
 	int width = 600;
 	int height = 600;
+  viewMode = 0;
 
     GLFWwindow* window = initGLFW(width, height);
 
@@ -1785,6 +1937,7 @@ int main (int argc, char** argv)
             handleCollisionBonus();
         }
     }
+    cout<<"Your Score "<<p->getScore()<<endl;
 
     glfwTerminate();
     exit(EXIT_SUCCESS);
