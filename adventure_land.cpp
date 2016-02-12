@@ -819,12 +819,21 @@ Cuboid::~Cuboid(){
 
 void undergoSliding(){
   static float factor = 0.5f;
+  int tempIdx;
   for(int i = 0; i < NUM_TILES_ROW * NUM_TILES_COL; i++){
     if(tilesList[i]->isSliding()){
+    	//cout<<"Cuboid:: Upper Limit"<<Cuboid::UPPER_LIMIT<<endl;
+    	//cout<<"Cuboid:: Lower Limit"<<Cuboid::LOWER_LIMIT<<endl;
+    	cout<<"Sliding Factor "<<factor<<endl;
+    	cout<<"Y value = "<<tilesList[i]->y<<endl;
       tilesList[i]->y += factor;
-      if(tilesList[i]->y > Cuboid::UPPER_LIMIT || tilesList[i]->y < Cuboid::LOWER_LIMIT)factor *= -1.0f;
+      tempIdx = i;
     }
   }
+  if(tilesList[tempIdx]->y >= Cuboid::UPPER_LIMIT)
+	  factor = -0.5f;
+  else if(tilesList[tempIdx]->y <= Cuboid::LOWER_LIMIT)
+	  factor = 0.5f;
 }
 
 void Cuboid::draw(){
@@ -1717,7 +1726,7 @@ void drawScene(){
   }
   for(i = 0; i < bonusList.size(); i++){
     bonusList[i]->draw();
-    cout<<"Bonus drawn:-> "<<i<<endl;
+    //cout<<"Bonus drawn:-> "<<i<<endl;
   }
 
 }
