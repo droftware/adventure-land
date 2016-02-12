@@ -105,8 +105,8 @@ private:
   bool sliding;
   glm::vec3 axis;
   float angle;
-  static const float UPPER_LIMIT = 10.0f;
-  static const float LOWER_LIMIT = -10.0f;
+  static const float UPPER_LIMIT = 15.0f;
+  static const float LOWER_LIMIT = -20.0f;
 };
 
 class Player{
@@ -152,6 +152,8 @@ private:
   bool move_down;
   bool dynamic;
   bool inAir;
+  bool falling;
+  float fallTime;
   int score;
   int life;
   static const float GRAVITY = 20.0f;
@@ -951,6 +953,8 @@ Player::Player(GLMatrices *mtx, float x, float y, float z){
   move_left = false;
   move_right = false;
   inAir = false;
+  falling = false;
+  fallTime = 0.0f;
   delete[] colorCube;
 
 }
@@ -997,10 +1001,11 @@ void Player::applyForces(float timeInstance){
   int tileRowNum = (int)floor(tx/width);
   int tileColNum = (int)floor(tz/length);
   int tileIndex = tileColNum * NUM_TILES_COL + tileRowNum;
-  if(tileIndex>=0 && tileIndex < NUM_TILES_ROW*NUM_TILES_COL && !tilesList[tileIndex]->isVisible() && !inAir){
+  if(tileIndex>=0 && tileIndex < NUM_TILES_ROW*NUM_TILES_COL && !tilesList[tileIndex]->isVisible() && !inAir && !falling){
     //cout<<"Standing on an empty tile"<<endl;
-    setPosition(0.0f,groundY,0.0f);
-    return;
+    //setPosition(0.0f,groundY,0.0f);
+    falling = true;
+    //return;
   }
   //cout<<"Row Num: "<<tileRowNum<<endl;
   //cout<<"Col Num: "<<tileColNum<<endl;
@@ -1027,6 +1032,18 @@ void Player::applyForces(float timeInstance){
       jumpTime = 0.0f;
       inAir = false;
     }
+  }
+  if(falling){
+  	fallTime += timeInstance;
+  	ty -= (0.5 * GRAVITY * fallTime * fallTime);
+  	setPosition(tx, ty, tz);
+  	cout<<" Fall time = "<< fallTime<<endl;
+  	if(fallTime >= 1.0f){
+  		setPosition(0.0f,groundY,0.0f);
+  		fallTime = 0.0f;
+  		falling = false;
+  	}
+  	
   }
 
 }
@@ -1604,13 +1621,30 @@ void createScene(){
       temp_cuboid = new Cuboid(&Matrices, textureId, colorCube, posX, 0.0f, posZ, length, width, height, 0);
       tilesList.push_back(temp_cuboid);
       posX += width;
-      if(rand() % 5 ==0 && tilesList.size()!=1)temp_cuboid->setVisible(false);
+      //if(rand() % 5 ==0 && tilesList.size()!=1)temp_cuboid->setVisible(false);
       //else if(rand() % 10 == 4)temp_cuboid->setSliding(true);
     }
     posX = 0.0f;
     posZ += length;
   }
 
+  //Create holes
+  tilesList[11]->setVisible(false);
+  tilesList[22]->setVisible(false);
+  tilesList[29]->setVisible(false);
+  tilesList[33]->setVisible(false);
+  tilesList[43]->setVisible(false);
+  tilesList[48]->setVisible(false);
+  tilesList[50]->setVisible(false);
+  tilesList[73]->setVisible(false);
+  tilesList[85]->setVisible(false);
+  tilesList[92]->setVisible(false);
+  tilesList[99]->setVisible(false);
+
+  //Create Sliding tiles
+  tilesList[5]->setSliding(true);
+  tilesList[18]->setSliding(true);
+  tilesList[37]->setSliding(true);
 
 
   //Water area bottom
