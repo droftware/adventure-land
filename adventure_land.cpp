@@ -143,6 +143,9 @@ public:
   float getPosX();
   float getPosY();
   float getPosZ();
+  float getHeight();
+  float getWidth();
+  float getLength();
   friend bool checkCollisionVillain(Villain &v);
   friend void simulateCollisionVillain();
   friend void handleCollisionVillain();
@@ -224,6 +227,8 @@ vector<Cuboid*> waterList;
 vector<Villain*> villainList;
 vector<Bonus*> bonusList;
 int viewMode;
+float camPosX,camPosY;
+float zoomFactor;
 
 /* Function to load Shaders - Use it as it is */
 GLuint LoadShaders(const char * vertex_file_path,const char * fragment_file_path) {
@@ -1216,6 +1221,19 @@ float Player::getPosZ(){
   return cb->getPosZ();
 }
 
+float Player::getHeight(){
+	return cb->getHeight();
+}
+
+float Player::getWidth(){
+	return cb->getWidth();
+}
+
+float Player::getLength(){
+	return cb->getLength();
+}
+
+
 void Player::setDynamic(bool value){
   dynamic = value;
   if(!value){
@@ -1442,19 +1460,19 @@ void keyboard (GLFWwindow* window, int key, int scancode, int action, int mods)
             case GLFW_KEY_ESCAPE:
                 quit(window);
                 break;
-            case GLFW_KEY_LEFT:
+            case GLFW_KEY_UP:
                 p->setDynamic(true);
                 p->enableMoveRight();
                 break;
-            case GLFW_KEY_RIGHT:
+            case GLFW_KEY_DOWN:
                 p->setDynamic(true);
                 p->enableMoveLeft();
                 break;
-            case GLFW_KEY_UP:
+            case GLFW_KEY_RIGHT:
                 p->setDynamic(true);
                 p->enableMoveDown();
                 break;
-            case GLFW_KEY_DOWN:
+            case GLFW_KEY_LEFT:
                 p->setDynamic(true);
                 p->enableMoveUp();
                 break;
@@ -1482,6 +1500,12 @@ void keyboard (GLFWwindow* window, int key, int scancode, int action, int mods)
             case GLFW_KEY_F3:
               viewMode = 2;
               break;
+            case GLFW_KEY_F4:
+              viewMode = 3;
+              break;
+            case GLFW_KEY_F5:
+              viewMode = 4;
+              break;
 
 
             default:
@@ -1502,6 +1526,26 @@ void keyboardChar (GLFWwindow* window, unsigned int key)
 			break;
 	}
 }
+
+static void cursorPosCallback(GLFWwindow* window, double xpos, double ypos)
+{
+	camPosX = xpos/600*60;
+	camPosY = ypos/600*60;
+	cout<<"Xpos = "<<camPosX<<endl;
+	cout<<"Ypos = "<<camPosY<<endl;
+}
+
+void scrollCallback(GLFWwindow* window, double xoffset, double yoffset)
+{
+	if(yoffset > 0){
+		zoomFactor--;
+	}
+	else if(yoffset < 0){
+		zoomFactor++;
+	}
+}
+
+
 
 /* Executed when a mouse button is pressed/released */
 void mouseButton (GLFWwindow* window, int button, int action, int mods)
@@ -1941,6 +1985,14 @@ void draw ()
     eye = glm::vec3( TILE_WIDTH * NUM_TILES_ROW/2.0f , 25, TILE_LENGTH * NUM_TILES_COL/2.0f);
     target = glm::vec3(TILE_WIDTH * NUM_TILES_ROW/2.0f -1, 0, TILE_LENGTH * NUM_TILES_COL/2.0f - 1);
   }
+  else if(viewMode == 3){
+  	eye = glm::vec3(p->getPosX() + p->getWidth()/2.0f, p->getPosY() + p->getHeight()/2.0f, p->getPosZ());
+  	target = glm::vec3(p->getPosX() + p->getWidth()/2.0f + 3.0f, p->getPosY() + p->getHeight()/2.0f, p->getPosZ());
+  }
+  else if(viewMode == 4){
+  	eye = glm::vec3(camPosX, zoomFactor, camPosY);
+  	target = glm::vec3(camPosX-1, 0, camPosY-1);
+  }
 
 
 
@@ -2034,6 +2086,10 @@ GLFWwindow* initGLFW (int width, int height)
     /* Register function to handle mouse click */
     glfwSetMouseButtonCallback(window, mouseButton);  // mouse button clicks
 
+    glfwSetCursorPosCallback(window, cursorPosCallback);
+
+    glfwSetScrollCallback(window, scrollCallback);
+
     return window;
 }
 
@@ -2123,6 +2179,9 @@ int main (int argc, char** argv)
 {
 	int width = 600;
 	int height = 600;
+	camPosX = 25.0f;
+	camPosY = 25.0f;
+	zoomFactor = 20.0f;
   viewMode = 0;
 
     GLFWwindow* window = initGLFW(width, height);
