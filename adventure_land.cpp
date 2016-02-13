@@ -65,6 +65,9 @@ public:
   ~Cuboid();
   void draw();
   void setPosition(float x, float y, float z);
+  void setX(float value);
+  void setY(float value);
+  void setZ(float value);
   float getPosX();
   float getPosY();
   float getPosZ();
@@ -80,10 +83,13 @@ public:
   float getAngle();
   void setAngle(float angle);
   void setVisible(bool value);
+  void setEmpty(bool value);
   void setSliding(bool value);
   bool isVisible();
   bool isSliding();
+  bool isEmpty();
   bool checkCollision(Cuboid &cb);
+  //friend bool checkCollisionMovingTile(Cuboid &cbd);
   friend void undergoSliding();
 private:
   GLfloat *vertex_buffer_data;
@@ -101,6 +107,7 @@ private:
   float length;
   float width;
   float height;
+  bool empty;
   bool visible;
   bool sliding;
   glm::vec3 axis;
@@ -113,6 +120,9 @@ class Player{
 public:
   Player(GLMatrices *mtx, float x, float y, float z);
   void setPosition(float x, float y, float z);
+  void setX(float value);
+  void setY(float value);
+  void setZ(float value);
   void draw();
   void applyForces();
   void setDynamic(bool value);
@@ -129,6 +139,7 @@ public:
   void decreaseSpeed();
   void incrementScore();
   void decrementLife();
+  int getStandingTileIndex();
   float getPosX();
   float getPosY();
   float getPosZ();
@@ -139,6 +150,10 @@ public:
   friend bool checkCollisionBonus(Bonus &b);
   friend void simulateCollisionBonus();
   friend void handleCollisionBonus();
+
+  friend bool checkCollisionMovingTile(Cuboid &cbd);
+  friend void simulateCollisionMovingTile();
+  friend void handleCollisionMovingTile();
 private:
   Cuboid *cb;
   Cuboid *barrel;
@@ -153,9 +168,11 @@ private:
   bool dynamic;
   bool inAir;
   bool falling;
+  bool onSlider;
   float fallTime;
   int score;
   int life;
+  Cuboid *sliderTile;
   static const float GRAVITY = 20.0f;
 };
 
@@ -804,6 +821,7 @@ Cuboid::Cuboid(GLMatrices *mtx, GLuint textureID, float *color, float x, float y
 
  }
 
+ empty = false;
  visible = true;
  sliding = false;
 
@@ -824,8 +842,8 @@ void undergoSliding(){
     if(tilesList[i]->isSliding()){
     	//cout<<"Cuboid:: Upper Limit"<<Cuboid::UPPER_LIMIT<<endl;
     	//cout<<"Cuboid:: Lower Limit"<<Cuboid::LOWER_LIMIT<<endl;
-    	cout<<"Sliding Factor "<<factor<<endl;
-    	cout<<"Y value = "<<tilesList[i]->y<<endl;
+    	//cout<<"Sliding Factor "<<factor<<endl;
+    	//cout<<"Y value = "<<tilesList[i]->y<<endl;
       tilesList[i]->y += factor;
       tempIdx = i;
     }
@@ -834,6 +852,16 @@ void undergoSliding(){
 	  factor = -0.5f;
   else if(tilesList[tempIdx]->y <= Cuboid::LOWER_LIMIT)
 	  factor = 0.5f;
+}
+
+void Cuboid::setX(float value){
+	x = value;
+}
+void Cuboid::setY(float value){
+	y = value;
+}
+void Cuboid::setZ(float value){
+	z = value;
 }
 
 void Cuboid::draw(){
@@ -866,6 +894,11 @@ void Cuboid::setVisible(bool value){
 
 void Cuboid::setSliding(bool value){
   this->sliding = value;
+
+}
+
+void Cuboid::setEmpty(bool value){
+	this->empty = value;
 }
 
 bool Cuboid::isVisible(){
@@ -874,6 +907,10 @@ bool Cuboid::isVisible(){
 
 bool Cuboid::isSliding(){
   return this->sliding;
+}
+
+bool Cuboid::isEmpty(){
+	return this->empty;
 }
 
 void Cuboid::setPosition(float x, float y, float z){
@@ -964,6 +1001,7 @@ Player::Player(GLMatrices *mtx, float x, float y, float z){
   inAir = false;
   falling = false;
   fallTime = 0.0f;
+  onSlider = false;
   delete[] colorCube;
 
 }
@@ -985,6 +1023,8 @@ void Player::setPosition(float x, float y, float z){
   barrel->setPosition(x , y, z);
 }
 
+
+
 void Player::barrelLeft(){
   float currentAngle = barrel->getAngle();
   currentAngle += 2.0f;
@@ -1001,7 +1041,7 @@ int Player::getScore(){
   return score;
 }
 
-void Player::applyForces(float timeInstance){
+int Player::getStandingTileIndex(){
   float tx = getPosX();
   float ty = getPosY();
   float tz = getPosZ();
@@ -1010,51 +1050,150 @@ void Player::applyForces(float timeInstance){
   int tileRowNum = (int)floor(tx/width);
   int tileColNum = (int)floor(tz/length);
   int tileIndex = tileColNum * NUM_TILES_COL + tileRowNum;
-  if(tileIndex>=0 && tileIndex < NUM_TILES_ROW*NUM_TILES_COL && !tilesList[tileIndex]->isVisible() && !inAir && !falling){
+  if(tileIndex >= 0 && tileIndex < NUM_TILES_ROW*NUM_TILES_COL)
+  	return tileIndex;
+  else 
+  	return -1;
+}
+
+void Player::applyForces(float timeInstance){
+  float tileX,tileZ;
+  float tx = getPosX();
+  float ty = getPosY();
+  float tz = getPosZ();
+
+  float edgeXLow = tx - cb->getWidth()/2.0f;
+  float edgeXHigh = tx + cb->getWidth()/2.0f;
+  float edgeZLow = tz - cb->getLength()/2.0f;
+  float edgeZHigh = tz + cb->getLength()/2.0f;
+
+  if(edgeXLow < -2.5f)tx = 0.0f;
+  else if(edgeXHigh > 47.5f)tx = 47.5f - cb->getWidth()/2.0f ;
+
+  if(edgeZLow < -2.5f)tz = 0.0f;
+  else if(edgeZHigh > 47.5f)tz = 47.5f - cb->getLength()/2.0f;
+
+  setPosition(tx, ty, tz);
+
+  int tileIndex = getStandingTileIndex();
+  cout<<"Tile -> "<<tileIndex<<endl;
+
+  if(tileIndex != -1 && tilesList[tileIndex]->isEmpty() && !inAir && !falling && !onSlider){
     //cout<<"Standing on an empty tile"<<endl;
     //setPosition(0.0f,groundY,0.0f);
     falling = true;
     //return;
   }
-  //cout<<"Row Num: "<<tileRowNum<<endl;
-  //cout<<"Col Num: "<<tileColNum<<endl;
-  //cout<<"Index: "<<tileIndex<<endl;
+  if(onSlider){
+  	cout<<" -- ty = "<<ty<<endl;
+  	ty = sliderTile->getPosY() + sliderTile->getHeight()/2.0f + cb->getHeight()/2.0f; 
+  	setY(ty);
+  	cout<<" ++ ty = "<<ty<<endl;
+  	tileX = sliderTile->getPosX();
+  	tileZ = sliderTile->getPosZ();
+  	if(abs(tx - tileX) > sliderTile->getWidth()/2.0f || abs(tz - tileZ) > sliderTile->getLength()/2.0f){
+  		onSlider = false;
+  		if(ty > 0.0f){
+  			inAir = true;
+  			speedY = -1.0f * 5.0f;
+  		}
+  		else{
+  			falling = true;
+  		}
+  		sliderTile = NULL;
+  		cout<<"Made jump"<<endl;
+  	} 
+
+  }
   if(dynamic){
     //cout<<"Force applied"<<endl;
-    if(move_up)
+    if(move_up){
       tz -= speedX;
-    if(move_down)
+    }
+    if(move_down){
       tz += speedX;
-    if(move_right)
+    }
+
+    if(move_right){
       tx += speedX;
-    if(move_left)
+    }
+    if(move_left){
       tx -= speedX;
-    setPosition(tx, ty, tz);
+    }
+    cout<<"Position Set"<<endl;
+    cout<<"X --> "<<tx<<endl;
+    cout<<"Z --> "<<tz<<endl;
+    setX(tx);
+    setZ(tz);
   }
+  //setPosition(tx, ty, tz);
   if(inAir){
+  	//cout<<"Entered in air"<<endl;
     jumpTime += timeInstance;
+    //cout<<" ** -- ty = "<<ty<<" airSpeed* t = "<<speedY<<" 0.5at^2 = "<<(0.5 * GRAVITY * jumpTime *jumpTime)<<endl;
     ty += speedY * jumpTime - (0.5 * GRAVITY * jumpTime *jumpTime);
+    //cout<<"jumpTime = "<<jumpTime<<"  ** ++ ty = "<<ty<<endl;
     setPosition(tx, ty, tz);
-    if(ty <= groundY){
-      ty = groundY;
+    //Segmentation fault will take place for index = -1, rectify afterwards
+    if(p->cb->checkCollision(*tilesList[tileIndex])){
+      //ty = groundY;
+      //cout<<"Collided with -> "<<tileIndex<<endl;	
+      ty = tilesList[tileIndex]->getPosY() + tilesList[tileIndex]->getHeight()/2.0f + cb->getHeight()/2.0f;
       setPosition(tx, ty, tz);
+      if(tilesList[tileIndex]->isSliding()){
+      	onSlider = true;
+      	sliderTile = tilesList[tileIndex];
+      	cout<<" ******************* Made on slider true "<<endl;
+      }
       jumpTime = 0.0f;
-      inAir = false;
+      inAir = false; 
+      speedY = 6.0f;
     }
   }
   if(falling){
-  	fallTime += timeInstance;
-  	ty -= (0.5 * GRAVITY * fallTime * fallTime);
-  	setPosition(tx, ty, tz);
-  	cout<<" Fall time = "<< fallTime<<endl;
-  	if(fallTime >= 1.0f){
-  		setPosition(0.0f,groundY,0.0f);
-  		fallTime = 0.0f;
-  		falling = false;
+  		cout<<"Entered falling"<<endl;
+	  	if(onSlider){
+	  		sliderTile = tilesList[tileIndex];
+	  		fallTime = 0.0f;
+	  		falling = false;
+	  	}
+	  	fallTime += timeInstance;
+	  	ty -= (0.5 * GRAVITY * fallTime * fallTime);
+	  	setPosition(tx, ty, tz);
+	  	//cout<<" Fall time = "<< fallTime<<endl;
+	  	//cout<<"on slider - "<<onSlider<<endl;
+	  	if(fallTime >= 1.3f){
+	  		tx = 0.0f;
+	       	ty = groundY;
+	       	tz = 0.0f;
+	       	setPosition(tx, ty, tz);
+	  		fallTime = 0.0f;
+	  		falling = false;
+	  	}
+		else if(tileIndex != -1 && p->cb->checkCollision(*tilesList[tileIndex]) && tilesList[tileIndex]->isSliding() ){
+			ty = tilesList[tileIndex]->getPosY() + tilesList[tileIndex]->getHeight()/2.0f + cb->getHeight()/2.0f;
+			onSlider = true;
+			sliderTile = tilesList[tileIndex];
+			setPosition(tx, ty, tz);
+	  		fallTime = 0.0f;
+	  		falling = false;
+		}
   	}
   	
-  }
 
+}
+
+void Player::setX(float value){
+	cb->setX(value);
+	barrel->setX(value);
+}
+void Player::setY(float value){
+	cb->setY(value);
+	barrel->setY(value);
+}
+void Player::setZ(float value){
+	cb->setZ(value);
+	barrel->setZ(value);
 }
 
 void Player::incrementScore(){
@@ -1228,12 +1367,38 @@ void handleCollisionBonus(){
   for(int i = 0; i < bonusList.size(); i++){
     if(checkCollisionBonus(*bonusList[i]))
       {
-        cout<<"Collision happened: Bonus"<<endl;
+        //cout<<"Collision happened: Bonus"<<endl;
         simulateCollisionBonus(*bonusList[i]);
       }
   }
-
 }
+
+bool checkCollisionMovingTile(Cuboid &cbd){
+	return p->cb->checkCollision(cbd);
+}
+
+void simulateCollisionMovingTile(){
+	float tx,ty,tz;
+	int tileIndex = p->getStandingTileIndex();
+	if(tileIndex != -1){
+		tx = tilesList[tileIndex]->getPosX();
+		ty = tilesList[tileIndex]->getPosY() + tilesList[tileIndex]->getHeight()/2.0f + p->cb->getHeight()/2.0f;
+		tz = tilesList[tileIndex]->getPosZ();	
+		//cout<<"Ty is "<<ty<<endl;
+		p->setPosition(tx, ty, tz);
+	}
+}
+
+void handleCollisionMovingTile(){
+	for(int i = 0; i < tilesList.size(); i++){
+		if(tilesList[i]->isSliding() && checkCollisionMovingTile(*tilesList[i]) && p->getPosY() < tilesList[i]->getHeight()/2.0f + p->cb->getHeight() && p->getPosY() > 0.0f){
+			//cout<<"Collision Happened"<<endl;
+			simulateCollisionMovingTile();
+		}
+	}
+}
+
+
 
 
 
@@ -1279,19 +1444,19 @@ void keyboard (GLFWwindow* window, int key, int scancode, int action, int mods)
                 break;
             case GLFW_KEY_LEFT:
                 p->setDynamic(true);
-                p->enableMoveLeft();
+                p->enableMoveRight();
                 break;
             case GLFW_KEY_RIGHT:
                 p->setDynamic(true);
-                p->enableMoveRight();
+                p->enableMoveLeft();
                 break;
             case GLFW_KEY_UP:
                 p->setDynamic(true);
-                p->enableMoveUp();
+                p->enableMoveDown();
                 break;
             case GLFW_KEY_DOWN:
                 p->setDynamic(true);
-                p->enableMoveDown();
+                p->enableMoveUp();
                 break;
             case GLFW_KEY_SPACE:
                 p->jump();
@@ -1650,10 +1815,26 @@ void createScene(){
   tilesList[92]->setVisible(false);
   tilesList[99]->setVisible(false);
 
+  tilesList[11]->setEmpty(true);
+  tilesList[22]->setEmpty(true);
+  tilesList[29]->setEmpty(true);
+  tilesList[33]->setEmpty(true);
+  tilesList[43]->setEmpty(true);
+  tilesList[48]->setEmpty(true);
+  tilesList[50]->setEmpty(true);
+  tilesList[73]->setEmpty(true);
+  tilesList[85]->setEmpty(true);
+  tilesList[92]->setEmpty(true);
+  tilesList[99]->setEmpty(true);
+
   //Create Sliding tiles
   tilesList[5]->setSliding(true);
   tilesList[18]->setSliding(true);
   tilesList[37]->setSliding(true);
+
+  tilesList[5]->setEmpty(true);
+  tilesList[18]->setEmpty(true);
+  tilesList[37]->setEmpty(true);
 
 
   //Water area bottom
@@ -1749,7 +1930,7 @@ void draw ()
 
 
   if(viewMode == 0){
-    eye = glm::vec3( p->getPosX() + 6.0f, p->getPosY() + 6.0f, p->getPosZ() + 6.0f);
+    eye = glm::vec3( p->getPosX() - 4.0f, p->getPosY() + 6.0f, p->getPosZ() - 4.0f);
     target = glm::vec3(p->getPosX(), p->getPosY(), p->getPosZ());
   }
   else if(viewMode == 1){
@@ -1760,14 +1941,7 @@ void draw ()
     eye = glm::vec3( TILE_WIDTH * NUM_TILES_ROW/2.0f , 25, TILE_LENGTH * NUM_TILES_COL/2.0f);
     target = glm::vec3(TILE_WIDTH * NUM_TILES_ROW/2.0f -1, 0, TILE_LENGTH * NUM_TILES_COL/2.0f - 1);
   }
-  // Eye - Location of camera. Don't change unless you are sure!!
-  //glm::vec3 eye ( 5*cos(camera_rotation_angle*M_PI/180.0f), 9, 5*sin(camera_rotation_angle*M_PI/180.0f) );
-  //glm::vec3 eye ( p->getPosX() + 6.0f, p->getPosY() + 6.0f, p->getPosZ() + 6.0f);
-    //glm::vec3 eye ( p->getPosX() , p->getPosY() + 10, p->getPosZ());
-  // Target - Where is the camera looking at.  Don't change unless you are sure!!
-  //glm::vec3 target (0, 0, 0);
-  //glm::vec3 target ( p->getPosX(), p->getPosY(), p->getPosZ());
-  // Up - Up vector defines tilt of camera.  Don't change unless you are sure!!
+
 
 
   // Compute Camera matrix (view)
@@ -1917,7 +2091,7 @@ void initGL (GLFWwindow* window, int width, int height)
   Bonus *b3 = new Bonus(&Matrices, 30.0f, 6.0f, 10.0f);
   bonusList.push_back(b3);
 
-  p = new Player(&Matrices, 0.0f, 6.0f, 0.0f);
+  p = new Player(&Matrices, 0.0f, 4.5f, 0.0f);
 
 //Player::Player(GLMatrices *mtx, 
   //float x, float y, float z){
@@ -1976,6 +2150,7 @@ int main (int argc, char** argv)
             last_update_time = current_time;
             undergoSliding();
             p->applyForces(0.05f);
+            handleCollisionMovingTile();
             handleCollisionVillain();
             handleCollisionBonus();
         }
