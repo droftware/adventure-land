@@ -85,6 +85,7 @@ public:
   void setVisible(bool value);
   void setEmpty(bool value);
   void setSliding(bool value);
+  void setLastKey(char value);
   bool isVisible();
   bool isSliding();
   bool isEmpty();
@@ -139,10 +140,15 @@ public:
   void decreaseSpeed();
   void incrementScore();
   void decrementLife();
+  void setLastKey(char value);
   int getStandingTileIndex();
   float getPosX();
   float getPosY();
   float getPosZ();
+  float getHeadX();
+  float getHeadY();
+  float getHeadZ();
+  char getLastKey();
   float getHeight();
   float getWidth();
   float getLength();
@@ -157,6 +163,8 @@ public:
   friend bool checkCollisionMovingTile(Cuboid &cbd);
   friend void simulateCollisionMovingTile();
   friend void handleCollisionMovingTile();
+
+  friend void checkWinCollision();
 private:
   Cuboid *cb;
   Cuboid *barrel;
@@ -164,6 +172,9 @@ private:
   float speedY;
   float jumpTime;
   float groundY;
+  float headX;
+  float headY;
+  float headZ;
   bool move_left;
   bool move_right;
   bool move_up;
@@ -175,22 +186,30 @@ private:
   float fallTime;
   int score;
   int life;
+  char lastKey;
   Cuboid *sliderTile;
   static const float GRAVITY = 20.0f;
 };
 
 class Villain{
 public:
-  Villain(GLMatrices *mtx, float x, float y, float z);
+  Villain(GLMatrices *mtx, float x, float y, float z, bool dynamic = false);
   void draw();
   float getPosX();
   float getPosY();
   float getPosZ();
+  void applyForces(float timeInstance);
+  bool getVisible();
   friend bool checkCollisionVillain(Villain &v);
   friend void simulateCollisionVillain();
   friend void handleCollisionVillain();
 private:
   Cuboid *cb;
+  bool visible;
+  bool dynamic;
+  float time;
+  float speed;
+  float switchTime;
 };
 
 class Bonus{
@@ -221,6 +240,7 @@ private:
 };
 
 Cuboid *cb;
+Cuboid *winBlock;
 Player *p;
 vector<Cuboid*> tilesList;
 vector<Cuboid*> waterList;
@@ -229,6 +249,14 @@ vector<Bonus*> bonusList;
 int viewMode;
 float camPosX,camPosY;
 float zoomFactor;
+float cameraRotationAngle;
+bool panFlag;
+float prevX;
+float prevY;
+float prevCamPosX;
+float prevCamPosY;
+bool looseFlag;
+bool winFlag;
 
 /* Function to load Shaders - Use it as it is */
 GLuint LoadShaders(const char * vertex_file_path,const char * fragment_file_path) {
@@ -997,6 +1025,9 @@ Player::Player(GLMatrices *mtx, float x, float y, float z){
   groundY = y;
   speedX = 1.0f;
   speedY = 6.0f;
+  headX = getPosX() + getWidth()/2.0f;
+  headY = getPosY() + getHeight()/2.0f;
+  headZ = getPosZ();
   jumpTime = 0.0f;
   dynamic = false;
   move_down = false;
@@ -1007,6 +1038,7 @@ Player::Player(GLMatrices *mtx, float x, float y, float z){
   falling = false;
   fallTime = 0.0f;
   onSlider = false;
+  lastKey = 'T';
   delete[] colorCube;
 
 }
@@ -1028,7 +1060,27 @@ void Player::setPosition(float x, float y, float z){
   barrel->setPosition(x , y, z);
 }
 
+float Player::getHeadX(){
+	return headX;
+}
 
+
+float Player::getHeadY(){
+	return headY;
+}
+
+char Player::getLastKey(){
+	return lastKey;
+}
+
+
+float Player::getHeadZ(){
+	return headZ;
+}
+
+void Player::setLastKey(char value){
+	lastKey = value;
+}
 
 void Player::barrelLeft(){
   float currentAngle = barrel->getAngle();
@@ -1067,6 +1119,12 @@ void Player::applyForces(float timeInstance){
   float ty = getPosY();
   float tz = getPosZ();
 
+  static float initFallY,finalFallY;
+  static bool fallFlag = false;
+
+  static float initAirY,finalAirY;
+  static bool airFlag = false;
+
   float edgeXLow = tx - cb->getWidth()/2.0f;
   float edgeXHigh = tx + cb->getWidth()/2.0f;
   float edgeZLow = tz - cb->getLength()/2.0f;
@@ -1081,8 +1139,8 @@ void Player::applyForces(float timeInstance){
   setPosition(tx, ty, tz);
 
   int tileIndex = getStandingTileIndex();
-  cout<<"Tile -> "<<tileIndex<<endl;
-
+  //cout<<"Tile -> "<<tileIndex<<endl;
+  if(tileIndex == -1)return;
   if(tileIndex != -1 && tilesList[tileIndex]->isEmpty() && !inAir && !falling && !onSlider){
     //cout<<"Standing on an empty tile"<<endl;
     //setPosition(0.0f,groundY,0.0f);
@@ -1090,10 +1148,10 @@ void Player::applyForces(float timeInstance){
     //return;
   }
   if(onSlider){
-  	cout<<" -- ty = "<<ty<<endl;
+  	//cout<<" -- ty = "<<ty<<endl;
   	ty = sliderTile->getPosY() + sliderTile->getHeight()/2.0f + cb->getHeight()/2.0f; 
   	setY(ty);
-  	cout<<" ++ ty = "<<ty<<endl;
+  	//cout<<" ++ ty = "<<ty<<endl;
   	tileX = sliderTile->getPosX();
   	tileZ = sliderTile->getPosZ();
   	if(abs(tx - tileX) > sliderTile->getWidth()/2.0f || abs(tz - tileZ) > sliderTile->getLength()/2.0f){
@@ -1106,7 +1164,7 @@ void Player::applyForces(float timeInstance){
   			falling = true;
   		}
   		sliderTile = NULL;
-  		cout<<"Made jump"<<endl;
+  		//cout<<"Made jump"<<endl;
   	} 
 
   }
@@ -1125,14 +1183,19 @@ void Player::applyForces(float timeInstance){
     if(move_left){
       tx -= speedX;
     }
-    cout<<"Position Set"<<endl;
-    cout<<"X --> "<<tx<<endl;
-    cout<<"Z --> "<<tz<<endl;
+    //cout<<"Position Set"<<endl;
+    //cout<<"X --> "<<tx<<endl;
+    //cout<<"Z --> "<<tz<<endl;
     setX(tx);
     setZ(tz);
   }
   //setPosition(tx, ty, tz);
   if(inAir){
+  	if(airFlag == false){
+  		airFlag = true;
+  		initAirY = getPosY();
+  		cout<<"Init air "<<initAirY<<endl;
+  	}
   	//cout<<"Entered in air"<<endl;
     jumpTime += timeInstance;
     //cout<<" ** -- ty = "<<ty<<" airSpeed* t = "<<speedY<<" 0.5at^2 = "<<(0.5 * GRAVITY * jumpTime *jumpTime)<<endl;
@@ -1141,14 +1204,23 @@ void Player::applyForces(float timeInstance){
     setPosition(tx, ty, tz);
     //Segmentation fault will take place for index = -1, rectify afterwards
     if(p->cb->checkCollision(*tilesList[tileIndex])){
+
+
       //ty = groundY;
       //cout<<"Collided with -> "<<tileIndex<<endl;	
       ty = tilesList[tileIndex]->getPosY() + tilesList[tileIndex]->getHeight()/2.0f + cb->getHeight()/2.0f;
       setPosition(tx, ty, tz);
+      finalAirY = getPosY();
+      airFlag = false;
+      cout<<"Final air y"<<finalAirY<<endl;
+      if(abs(initAirY - finalAirY) >= 13.0f)
+      	looseFlag = true;
+      finalAirY = initAirY = 0.0f;	
       if(tilesList[tileIndex]->isSliding()){
       	onSlider = true;
       	sliderTile = tilesList[tileIndex];
       	cout<<" ******************* Made on slider true "<<endl;
+
       }
       jumpTime = 0.0f;
       inAir = false; 
@@ -1156,7 +1228,12 @@ void Player::applyForces(float timeInstance){
     }
   }
   if(falling){
+  		if(fallFlag == false){
+  			fallFlag = true;
+  			initFallY = getPosY();
+  		}
   		cout<<"Entered falling"<<endl;
+  		cout<<" Y pos is = "<<getPosY()<<endl;
 	  	if(onSlider){
 	  		sliderTile = tilesList[tileIndex];
 	  		fallTime = 0.0f;
@@ -1168,12 +1245,18 @@ void Player::applyForces(float timeInstance){
 	  	//cout<<" Fall time = "<< fallTime<<endl;
 	  	//cout<<"on slider - "<<onSlider<<endl;
 	  	if(fallTime >= 1.3f){
+	  		finalFallY = getPosY();
 	  		tx = 0.0f;
 	       	ty = groundY;
 	       	tz = 0.0f;
 	       	setPosition(tx, ty, tz);
 	  		fallTime = 0.0f;
 	  		falling = false;
+	  		cout<<"Fall finished timeout"<<endl;
+	  		fallFlag = false;
+	  		if(abs(finalFallY - initFallY) >= 11.0f)
+	  			looseFlag = true;
+	  		finalFallY = initFallY = 0.0f;
 	  	}
 		else if(tileIndex != -1 && p->cb->checkCollision(*tilesList[tileIndex]) && tilesList[tileIndex]->isSliding() ){
 			ty = tilesList[tileIndex]->getPosY() + tilesList[tileIndex]->getHeight()/2.0f + cb->getHeight()/2.0f;
@@ -1182,7 +1265,32 @@ void Player::applyForces(float timeInstance){
 			setPosition(tx, ty, tz);
 	  		fallTime = 0.0f;
 	  		falling = false;
+	  		cout<<"Fall finished"<<endl;
+	  		cout<<" Y pos is = "<<getPosY()<<endl;
+	  	    finalFallY = getPosY();
+	  		fallFlag = false;
+	  		if(abs(finalFallY - initFallY) >= 11.0f)
+	  			looseFlag = true;
+	  		finalFallY = initFallY = 0.0f;
 		}
+  	}
+
+  	//Setting the head camera
+  	headX = getPosX();
+  	headY = getPosY();
+  	headZ = getPosZ();
+  	headY += getHeight()/2.0f;
+  	if(lastKey == 'T'){
+  		headX += getWidth()/2.0f;  		
+  	}
+  	else if(lastKey == 'B'){
+  		headX -= getWidth()/2.0f; 		
+  	}
+  	else if(lastKey == 'L'){
+  		headZ -= getLength()/2.0f;
+  	}
+  	else if(lastKey == 'R'){
+  		headZ += getLength()/2.0f;
   	}
   	
 
@@ -1255,21 +1363,25 @@ void Player::decreaseSpeed(){
 
 void Player::enableMoveLeft(){
   move_left = true;
+  //lastKey = 'L';
 }
 
 void Player::enableMoveRight(){
   move_right = true;
+  //lastKey = 'R';
 }
 
 void Player::enableMoveUp(){
   move_up = true;
+  //lastKey = 'T';
 }
 
 void Player::enableMoveDown(){
   move_down = true;
+  //lastKey = 'B';
 }
 
-Villain::Villain(GLMatrices *mtx, float x, float y, float z){
+Villain::Villain(GLMatrices *mtx, float x, float y, float z, bool dynamic){
   float *colorCube = new float[3];
   colorCube[0] = 0;
   colorCube[1] = 1;//0.412;
@@ -1280,13 +1392,49 @@ Villain::Villain(GLMatrices *mtx, float x, float y, float z){
     cout << "SOIL loading error: '" << SOIL_last_result() << "'" << endl;
   cb = new Cuboid(mtx, textureId, colorCube, x, y, z, 2.0f, 2.0f, 2.0f, 1);
   delete[] colorCube;
+  this->dynamic = dynamic;
+  this->visible = true;
+  this->time = 0.0f;
+  this->switchTime = 0.0f;
+  this->speed = 5.0f;
+}
+
+void Villain::applyForces(float timeInstance){
+	float tx = cb->getPosX();
+	float ty = cb->getPosY();
+	float tz = cb->getPosZ();
+	if(dynamic){
+		time += timeInstance;
+		//cout<<"Time - "<<time<<endl;
+		switchTime += timeInstance;
+		if(time >= 15.0f)
+		{
+			//cout<<"Switched visibility "<<endl;
+			visible = !visible;
+			time = 0.0f;
+		}
+		if(switchTime >= 5.0f){
+			speed *= -1.0f;
+			switchTime = 0.0f;
+		}
+		
+		tx += speed*timeInstance;
+		cb->setPosition(tx,ty,tz);
+	}
 }
 
 void Villain::draw(){
-  cb->draw();
+  if(getVisible()){
+  	  cb->draw();
+  }
 }
+
 float Villain::getPosX(){
   return cb->getPosX();
+}
+
+bool Villain::getVisible(){
+	return visible;
 }
 
 float Villain::getPosY(){
@@ -1354,7 +1502,7 @@ Bullet::Bullet(GLMatrices *mtx, float x, float y, float z, float ux, float uz){
 
 
 bool checkCollisionVillain(Villain &v){
-  return p->cb->checkCollision(*(v.cb));
+  return  (v.visible && p->cb->checkCollision(*(v.cb)) );
 }
 
 void simulateCollisionVillain(){
@@ -1369,6 +1517,11 @@ void handleCollisionVillain(){
         simulateCollisionVillain();
       }
   }
+}
+
+void checkWinCollision(){
+	if(p->cb->checkCollision(*winBlock))
+		winFlag = true; 
 }
 
 bool checkCollisionBonus(Bonus &b){
@@ -1463,18 +1616,22 @@ void keyboard (GLFWwindow* window, int key, int scancode, int action, int mods)
             case GLFW_KEY_UP:
                 p->setDynamic(true);
                 p->enableMoveRight();
+                p->setLastKey('T');
                 break;
             case GLFW_KEY_DOWN:
                 p->setDynamic(true);
                 p->enableMoveLeft();
+                p->setLastKey('B');
                 break;
             case GLFW_KEY_RIGHT:
                 p->setDynamic(true);
                 p->enableMoveDown();
+                p->setLastKey('R');
                 break;
             case GLFW_KEY_LEFT:
                 p->setDynamic(true);
                 p->enableMoveUp();
+                p->setLastKey('L');
                 break;
             case GLFW_KEY_SPACE:
                 p->jump();
@@ -1529,10 +1686,14 @@ void keyboardChar (GLFWwindow* window, unsigned int key)
 
 static void cursorPosCallback(GLFWwindow* window, double xpos, double ypos)
 {
-	camPosX = xpos/600*60;
-	camPosY = ypos/600*60;
-	cout<<"Xpos = "<<camPosX<<endl;
-	cout<<"Ypos = "<<camPosY<<endl;
+	if(!panFlag){
+		camPosX = xpos/600*60;
+		camPosY = ypos/600*60;
+		//cout<<"Xpos = "<<camPosX<<endl;
+		//cout<<"Ypos = "<<camPosY<<endl;
+
+	}
+
 }
 
 void scrollCallback(GLFWwindow* window, double xoffset, double yoffset)
@@ -1545,6 +1706,15 @@ void scrollCallback(GLFWwindow* window, double xoffset, double yoffset)
 	}
 }
 
+void checkPan(GLFWwindow* window){
+	double xpos, ypos;
+	if(panFlag){
+		glfwGetCursorPos(window, &xpos, &ypos);
+		if((float)ypos > prevY)cameraRotationAngle += 3.5f;
+		else if((float)ypos < prevY)cameraRotationAngle -= 3.5f;
+		prevY = (float)ypos;
+	}
+}
 
 
 /* Executed when a mouse button is pressed/released */
@@ -1553,11 +1723,19 @@ void mouseButton (GLFWwindow* window, int button, int action, int mods)
     switch (button) {
         case GLFW_MOUSE_BUTTON_LEFT:
             if (action == GLFW_RELEASE)
-                triangle_rot_dir *= -1;
+               
             break;
         case GLFW_MOUSE_BUTTON_RIGHT:
-            if (action == GLFW_RELEASE) {
-                rectangle_rot_dir *= -1;
+            if (action == GLFW_PRESS) {
+                panFlag = true;
+                prevCamPosX = camPosX;
+                prevCamPosY = camPosY;
+            }
+            else if(action == GLFW_RELEASE){
+            	panFlag = false;
+            	//prevY = 0.0f;
+            	camPosX = prevCamPosX;
+            	camPosY = prevCamPosY;
             }
             break;
         default:
@@ -1857,7 +2035,7 @@ void createScene(){
   tilesList[73]->setVisible(false);
   tilesList[85]->setVisible(false);
   tilesList[92]->setVisible(false);
-  tilesList[99]->setVisible(false);
+  tilesList[98]->setVisible(false);
 
   tilesList[11]->setEmpty(true);
   tilesList[22]->setEmpty(true);
@@ -1869,7 +2047,7 @@ void createScene(){
   tilesList[73]->setEmpty(true);
   tilesList[85]->setEmpty(true);
   tilesList[92]->setEmpty(true);
-  tilesList[99]->setEmpty(true);
+  tilesList[98]->setEmpty(true);
 
   //Create Sliding tiles
   tilesList[5]->setSliding(true);
@@ -1972,6 +2150,10 @@ void draw ()
   glm::vec3 target;
   glm::vec3 up( 0, 1, 0);
 
+  float offsetX;
+  float offsetY;
+  float offsetZ;
+
 
   if(viewMode == 0){
     eye = glm::vec3( p->getPosX() - 4.0f, p->getPosY() + 6.0f, p->getPosZ() - 4.0f);
@@ -1986,12 +2168,27 @@ void draw ()
     target = glm::vec3(TILE_WIDTH * NUM_TILES_ROW/2.0f -1, 0, TILE_LENGTH * NUM_TILES_COL/2.0f - 1);
   }
   else if(viewMode == 3){
-  	eye = glm::vec3(p->getPosX() + p->getWidth()/2.0f, p->getPosY() + p->getHeight()/2.0f, p->getPosZ());
-  	target = glm::vec3(p->getPosX() + p->getWidth()/2.0f + 3.0f, p->getPosY() + p->getHeight()/2.0f, p->getPosZ());
+  	char lastKey = p->getLastKey(); 
+  	if(lastKey == 'T'){
+  		offsetX = 3.0f;
+  	}
+  	else if(lastKey == 'B'){
+  		offsetX = -3.0f;
+  	}
+  	else if(lastKey == 'L'){
+  		offsetZ = -3.0f;
+  	}
+  	else if(lastKey == 'R'){
+  		offsetZ = 3.0f;
+  	}
+  	eye = glm::vec3(p->getHeadX(), p->getHeadY(), p->getHeadZ());
+  	target = glm::vec3(p->getHeadX() + offsetX, p->getHeadY(), p->getHeadZ() + offsetZ);
   }
   else if(viewMode == 4){
+  	//  glm::vec3 eye ( 5*cos(camera_rotation_angle*M_PI/180.0f), 3, 5*sin(camera_rotation_angle*M_PI/180.0f) );
+  	//eye = glm::vec3(camPosX, zoomFactor, camPosY);
   	eye = glm::vec3(camPosX, zoomFactor, camPosY);
-  	target = glm::vec3(camPosX-1, 0, camPosY-1);
+  	target = glm::vec3(camPosX + 3*sin(cameraRotationAngle * M_PI/180.0f) , zoomFactor - 3*cos(cameraRotationAngle * M_PI/180.0f) , camPosY - 3);
   }
 
 
@@ -2029,6 +2226,7 @@ void draw ()
 
   //cb->draw();
   drawScene();
+  winBlock->draw();
   p->draw();
 
 
@@ -2093,6 +2291,13 @@ GLFWwindow* initGLFW (int width, int height)
     return window;
 }
 
+void applyForcesVillains(float timeInstance){
+	for(int i = 0; i < villainList.size(); i++){
+		villainList[i]->applyForces(timeInstance);
+	}
+
+}
+
 /* Initialize the OpenGL rendering properties */
 /* Add all the models to be created here */
 void initGL (GLFWwindow* window, int width, int height)
@@ -2112,6 +2317,13 @@ void initGL (GLFWwindow* window, int width, int height)
   if(textureIdWater == 0 )
     cout << "SOIL loading error: '" << SOIL_last_result() << "'" << endl;
 
+  GLuint textureIdWin = createTexture("gift.png");
+  // check for an error during the load process
+  if(textureIdWin == 0 )
+    cout << "SOIL loading error: '" << SOIL_last_result() << "'" << endl;
+
+  
+
 
 
   // Create and compile our GLSL program from the texture shaders
@@ -2129,16 +2341,18 @@ void initGL (GLFWwindow* window, int width, int height)
   //cb = new Cuboid(&Matrices, textureIdTile, colorCube, 0.0f, 0.0f, 0.0f, 5.0f, 5.0f, 8.0f, 0);
   createScene();
 
-  Villain *v1 = new Villain(&Matrices, 10.0f, 6.0f, 10.0f);
+  winBlock = new Cuboid(&Matrices, textureIdWin, colorCube, 47.5f, 4.5f, 47.5f, 4.0f, 4.0f, 4.0f, 1);
+
+  Villain *v1 = new Villain(&Matrices, 10.0f, 6.0f, 10.0f,true);
   villainList.push_back(v1);
 
   Villain *v2 = new Villain(&Matrices, 20.0f, 6.0f, 23.0f);
   villainList.push_back(v2);
 
-  Villain *v3 = new Villain(&Matrices, 5.0f, 6.0f, 30.0f);
+  Villain *v3 = new Villain(&Matrices, 5.0f, 6.0f, 30.0f,true);
   villainList.push_back(v3);
 
-  Bonus *b1 = new Bonus(&Matrices, 20.0f, 6.0f, 30.0f);
+  Bonus *b1 = new Bonus(&Matrices, 10.0f, 6.0f, 40.0f);
   bonusList.push_back(b1);
 
   Bonus *b2 = new Bonus(&Matrices, 40.0f, 6.0f, 40.0f);
@@ -2179,10 +2393,12 @@ int main (int argc, char** argv)
 {
 	int width = 600;
 	int height = 600;
+	looseFlag = winFlag = false;
 	camPosX = 25.0f;
 	camPosY = 25.0f;
-	zoomFactor = 20.0f;
-  viewMode = 0;
+	zoomFactor = 30.0f;
+    viewMode = 0;
+    cameraRotationAngle = 0.0f;
 
     GLFWwindow* window = initGLFW(width, height);
 
@@ -2192,6 +2408,16 @@ int main (int argc, char** argv)
 
     /* Draw in loop */
     while (!glfwWindowShouldClose(window)) {
+
+    	if(winFlag){
+    		cout<<"You won !! :-) "<<endl;
+			quit(window);
+    	}
+
+    	if(looseFlag){
+    		cout<<"You Loose :-( "<<endl;
+    			quit(window);
+    	}
 
         // OpenGL Draw commands
         draw();
@@ -2209,12 +2435,15 @@ int main (int argc, char** argv)
             last_update_time = current_time;
             undergoSliding();
             p->applyForces(0.05f);
+            applyForcesVillains(0.05f);
             handleCollisionMovingTile();
             handleCollisionVillain();
             handleCollisionBonus();
+            checkWinCollision();
+            checkPan(window);
         }
     }
-    cout<<"Your Score "<<p->getScore()<<endl;
+    //cout<<"Your Score "<<p->getScore()<<endl;
 
     glfwTerminate();
     exit(EXIT_SUCCESS);
