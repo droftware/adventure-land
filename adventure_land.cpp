@@ -165,6 +165,7 @@ public:
   void decrementLife();
   void setLastKey(char value);
   int getStandingTileIndex();
+  float getAngle();
   float getPosX();
   float getPosY();
   float getPosZ();
@@ -223,13 +224,18 @@ public:
   float getPosZ();
   void applyForces(float timeInstance);
   bool getVisible();
+  void setAlive(bool value);
+  bool getAlive();
   friend bool checkCollisionVillain(Villain &v);
   friend void simulateCollisionVillain();
   friend void handleCollisionVillain();
+
+  friend void handleCollisionBullet();
 private:
   Cuboid *cb;
   bool visible;
   bool dynamic;
+  bool alive;
   float time;
   float speed;
   float switchTime;
@@ -255,11 +261,17 @@ private:
 class Bullet{
 public:
   Bullet(GLMatrices *mtx, float x, float y, float z, float ux, float uz);
+  void applyForces(float timeInstance);
+  void draw();
+  void fire();
+
+  friend void handleCollisionBullet();
 private:
   Cuboid *cb;
   float ux;
   float uz;
   bool visible;
+  float speed;
 };
 
 Cuboid *cb;
@@ -281,6 +293,7 @@ float prevCamPosY;
 bool looseFlag;
 bool winFlag;
 int lives;
+Bullet *bt;
 FTGLFont *f1;
 int score;
 sf::SoundBuffer bonusBuffer;
@@ -1177,6 +1190,10 @@ void Player::barrelLeft(){
   barrel->setAngle(currentAngle);
 }
 
+float Player::getAngle(){
+	return barrel->getAngle();
+}
+
 void Player::barrelRight(){
   float currentAngle = barrel->getAngle();
   currentAngle -= 2.0f;
@@ -1486,34 +1503,48 @@ Villain::Villain(GLMatrices *mtx, float x, float y, float z, bool dynamic){
   this->time = 0.0f;
   this->switchTime = 0.0f;
   this->speed = 5.0f;
+  this->alive = true;
+}
+
+void Villain::setAlive(bool value){
+	alive = value;
+	visible = false;
+}
+
+bool Villain::getAlive(){
+	return alive;
 }
 
 void Villain::applyForces(float timeInstance){
 	float tx = cb->getPosX();
 	float ty = cb->getPosY();
 	float tz = cb->getPosZ();
-	if(dynamic){
-		time += timeInstance;
-		//cout<<"Time - "<<time<<endl;
-		switchTime += timeInstance;
-		if(time >= 15.0f)
-		{
-			//cout<<"Switched visibility "<<endl;
-			visible = !visible;
-			time = 0.0f;
+	if(alive){
+		if(dynamic){
+			time += timeInstance;
+			//cout<<"Time - "<<time<<endl;
+			switchTime += timeInstance;
+			if(time >= 15.0f)
+			{
+				//cout<<"Switched visibility "<<endl;
+				visible = !visible;
+				time = 0.0f;
+			}
+			if(switchTime >= 5.0f){
+				speed *= -1.0f;
+				switchTime = 0.0f;
+			}
+			
+			tx += speed*timeInstance;
+			cb->setPosition(tx,ty,tz);
 		}
-		if(switchTime >= 5.0f){
-			speed *= -1.0f;
-			switchTime = 0.0f;
-		}
-		
-		tx += speed*timeInstance;
-		cb->setPosition(tx,ty,tz);
+
 	}
+	
 }
 
 void Villain::draw(){
-  if(getVisible()){
+  if(getVisible() && alive){
   	  cb->draw();
   }
 }
@@ -1580,13 +1611,46 @@ Bullet::Bullet(GLMatrices *mtx, float x, float y, float z, float ux, float uz){
   colorCube[2] = 1;//0.270;
   this->ux = ux;
   this->uz = uz;
-  GLuint textureId = createTexture("fire.png");
+  GLuint textureId = createTexture("lava.png");
   // check for an error during the load process
   if(textureId == 0 )
     cout << "SOIL loading error: '" << SOIL_last_result() << "'" << endl;
-  cb = new Cuboid(mtx, textureId, colorCube, x, y, z, 1.0f, 1.0f, 1.0f, 1);
+  cb = new Cuboid(mtx, textureId, colorCube, x, y, z, 1.0f, 1.5f, 1.0f, 1);
+  speed = 10.0f;
+  visible = false;
   delete[] colorCube;
 }
+
+void Bullet::applyForces(float timeInstance){
+	float  tx = cb->getPosX();
+	float ty = cb->getPosY();
+	float tz = cb->getPosZ();
+	float angle = p->getAngle() + 90.0f;
+	uz = speed * cos(angle * M_PI/180.0f);
+	ux = speed * sin(angle * M_PI/180.0f);
+	if(visible){
+		tx += timeInstance * ux;
+		tz += timeInstance * uz;
+		cb->setPosition(tx, ty, tz);
+		if(abs(tx) > 200.0f || abs(tz) > 200.0f)
+			visible = false;
+	}
+}
+
+void Bullet::draw(){
+	if(visible)
+		cb->draw();
+}
+
+void Bullet::fire(){
+	float tx = p->getPosX();
+	float ty = p->getPosY();
+	float tz = p->getPosZ();
+	cb->setPosition(tx, ty, tz);
+	visible = true;
+}
+
+
 
 
 
@@ -1637,6 +1701,16 @@ void handleCollisionBonus(){
         simulateCollisionBonus(*bonusList[i]);
       }
   }
+}
+
+void handleCollisionBullet(){
+	for(int i = 0; i < villainList.size(); i++){
+		if(bt->cb->checkCollision( *(villainList[i]->cb) ) && villainList[i]->alive && villainList[i]->visible ){
+			villainList[i]->visible = false;
+			villainList[i]->alive = false;
+			cout<<"Bullet HIT!!"<<endl;
+		}
+	}
 }
 
 bool checkCollisionMovingTile(Cuboid &cbd){
@@ -1817,9 +1891,13 @@ void mouseButton (GLFWwindow* window, int button, int action, int mods)
 {
     switch (button) {
         case GLFW_MOUSE_BUTTON_LEFT:
-            if (action == GLFW_RELEASE)
+            if (action == GLFW_RELEASE){
+            	bt->fire();
                
+           
+            }
             break;
+
         case GLFW_MOUSE_BUTTON_RIGHT:
             if (action == GLFW_PRESS) {
                 panFlag = true;
@@ -2323,6 +2401,7 @@ void draw ()
   drawScene();
   winBlock->draw();
   p->draw();
+  bt->draw();
 
   glUseProgram(fontProgramID);
   f1->draw();
@@ -2461,6 +2540,9 @@ void initGL (GLFWwindow* window, int width, int height)
 
   p = new Player(&Matrices, 0.0f, 4.5f, 0.0f);
 
+  //Bullet(GLMatrices *mtx, float x, float y, float z, float ux, float uz);
+  bt = new Bullet(&Matrices, 0.0f, 4.5f, 0.0f, 0.0f, 0.0f);
+
 //Player::Player(GLMatrices *mtx, 
   //float x, float y, float z){
 
@@ -2573,10 +2655,12 @@ int main (int argc, char** argv)
             strcpy(strB,"Score:");
             undergoSliding();
             p->applyForces(0.05f);
+            bt->applyForces(0.05f);
             applyForcesVillains(0.05f);
             handleCollisionMovingTile();
             handleCollisionVillain();
             handleCollisionBonus();
+            handleCollisionBullet();
             checkWinCollision();
             checkPan(window);
             sprintf(str, "%d", score);   
