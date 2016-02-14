@@ -15,6 +15,8 @@
 #include <FTGL/ftgl.h>
 #include <SOIL/SOIL.h>
 
+#include <SFML/Audio.hpp>
+
 using namespace std;
 float LEFT_BOUND = -72.0f;
 float RIGHT_BOUND = 72.0f;
@@ -58,6 +60,27 @@ GLint fontVertexCoordAttrib, fontVertexNormalAttrib, fontVertexOffsetUniform;
 //forward declarations
 class Villain;
 class Bonus;
+
+
+class FTGLFont{
+public:
+	FTGLFont(GLMatrices *mtx, float* color, char* fontfile, char *word, float size, float x, float y, float z, float scaleFactor);
+	~FTGLFont();
+	void draw();
+	void setWord(char* word);
+private:
+	GLMatrices *mtx;
+	FTFont* font;
+	GLuint fontMatrixID;
+	GLuint fontColorID;
+	float scaleFactor;
+	float x;
+	float y;
+	float z;
+  	glm::vec3 fontColor; 
+  	char* fontfile;
+  	char* word;
+};
 
 class Cuboid{
 public:
@@ -257,6 +280,12 @@ float prevCamPosX;
 float prevCamPosY;
 bool looseFlag;
 bool winFlag;
+int lives;
+FTGLFont *f1;
+int score;
+sf::SoundBuffer bonusBuffer;
+sf::SoundBuffer villainBuffer;
+sf::Sound sound;
 
 /* Function to load Shaders - Use it as it is */
 GLuint LoadShaders(const char * vertex_file_path,const char * fragment_file_path) {
@@ -1009,6 +1038,66 @@ bool Cuboid::checkCollision(Cuboid &cb){
   else return false;
 }
 
+FTGLFont::FTGLFont(GLMatrices *mtx, float* color, char* fontfile, char* word,float size, float x, float y, float z, float scaleFactor)
+{
+	cout<<"Entered ftgl"<<endl;
+	this->mtx = mtx;
+	cout<<"mtx made"<<endl;
+	fontColor = glm::vec3(color[0], color[1], color[2]);
+	cout<<"vec color made"<<endl;
+	this->fontfile = new char[20];
+	strcpy(this->fontfile, fontfile);
+	this->word = new char[100];
+	strcpy(this->word, word);
+	cout<<"str copied"<<endl;
+	this->x = x;
+	this->y = y;
+	this->z = z;
+	this->scaleFactor = scaleFactor;
+	
+	cout<<" Above this->font"<<endl;
+	this->font = new FTExtrudeFont(fontfile); // 3D extrude style rendering
+	if(this->font->Error())
+	{
+		cout << "Error: Could not load font `" << fontfile << "'" << endl;
+		glfwTerminate();
+		exit(EXIT_FAILURE);
+	}
+
+	// Create and compile our GLSL program from the font shaders
+	
+	this->fontMatrixID = glGetUniformLocation(fontProgramID, "MVP");
+	this->fontColorID = glGetUniformLocation(fontProgramID, "fontColor");
+
+	this->font->ShaderLocations(fontVertexCoordAttrib, fontVertexNormalAttrib, fontVertexOffsetUniform);
+	this->font->FaceSize(size);
+	this->font->Depth(0);
+	this->font->Outset(0, 0);
+	this->font->CharMap(ft_encoding_unicode);
+}
+
+void FTGLFont::draw(){
+  glm::mat4 MVP;
+
+  Matrices.view = glm::lookAt(glm::vec3(0,25,25), glm::vec3(25,2,2), glm::vec3(0,1,0)); // Fixed camera for 2D (ortho) in XY plane
+	// Transform the text
+	Matrices.model = glm::mat4(1.0f);
+	glm::mat4 translateText = glm::translate(glm::vec3(x,y,z));
+	glm::mat4 scaleText = glm::scale(glm::vec3(scaleFactor,scaleFactor,scaleFactor));
+	Matrices.model *= (translateText * scaleText);
+	MVP = Matrices.projection * Matrices.view * Matrices.model;
+	// send font's MVP and font color to fond shaders
+	glUniformMatrix4fv(this->fontMatrixID, 1, GL_FALSE, &MVP[0][0]);
+	glUniform3fv(this->fontColorID, 1, &fontColor[0]); 
+
+	// Render font
+	this->font->Render(word);
+}
+
+void FTGLFont::setWord(char* word){
+	strcpy(this->word, word);
+}
+
 Player::Player(GLMatrices *mtx, float x, float y, float z){
   float *colorCube = new float[3];
   colorCube[0] = 0;
@@ -1506,6 +1595,9 @@ bool checkCollisionVillain(Villain &v){
 }
 
 void simulateCollisionVillain(){
+  sound.setBuffer(villainBuffer);
+  sound.play();
+  lives--;
   p->setPosition(0.0f,6.0f,0.0f);
 }
 
@@ -1531,6 +1623,9 @@ bool checkCollisionBonus(Bonus &b){
 }
 
 void simulateCollisionBonus(Bonus &b){
+  score++;	
+  sound.setBuffer(bonusBuffer);
+  sound.play();
   b.setVisible(false);
 }
 
@@ -2229,6 +2324,9 @@ void draw ()
   winBlock->draw();
   p->draw();
 
+  glUseProgram(fontProgramID);
+  f1->draw();
+
 
 
   // Increment angles
@@ -2383,6 +2481,27 @@ void initGL (GLFWwindow* window, int width, int height)
 	//glDepthFunc (GL_LEQUAL);
 	glDepthFunc(GL_LESS);
 
+	fontProgramID = LoadShaders( "fontrender.vert", "fontrender.frag" );
+
+	fontVertexCoordAttrib = glGetAttribLocation(fontProgramID, "vertexPosition");
+	fontVertexNormalAttrib = glGetAttribLocation(fontProgramID, "vertexNormal");
+	fontVertexOffsetUniform = glGetUniformLocation(fontProgramID, "pen");
+
+	float colArrayFont[3];
+	colArrayFont[0] = 0;
+	colArrayFont[1] = 0;
+	colArrayFont[2] = 0;
+
+	char fileString[20]; 
+	strcpy(fileString, "kimberly.ttf");
+
+	char wordName[50];
+	strcpy(wordName, "Score");
+
+	f1 = new FTGLFont(&Matrices, colArrayFont, fileString, wordName, 20.0f, 10.0f, 35.0f, -30.0f, 1.0f); 
+
+
+
     cout << "VENDOR: " << glGetString(GL_VENDOR) << endl;
     cout << "RENDERER: " << glGetString(GL_RENDERER) << endl;
     cout << "VERSION: " << glGetString(GL_VERSION) << endl;
@@ -2393,18 +2512,36 @@ int main (int argc, char** argv)
 {
 	int width = 600;
 	int height = 600;
+	score = 0;
 	looseFlag = winFlag = false;
+	lives = 3;
 	camPosX = 25.0f;
 	camPosY = 25.0f;
 	zoomFactor = 30.0f;
     viewMode = 0;
     cameraRotationAngle = 0.0f;
 
+    if (!bonusBuffer.loadFromFile("bonus.ogg"))
+    {
+    	cout<<"Bonus sound not loaded";
+    	return -1;
+    }
+
+    if (!villainBuffer.loadFromFile("villain.ogg"))
+    {
+    	cout<<"Villain sound not loaded";
+    	return -1;
+    }
+
     GLFWwindow* window = initGLFW(width, height);
 
 	initGL (window, width, height);
 
     double last_update_time = glfwGetTime(), current_time;
+
+    char str[50];
+    char strB[50];
+	
 
     /* Draw in loop */
     while (!glfwWindowShouldClose(window)) {
@@ -2433,6 +2570,7 @@ int main (int argc, char** argv)
         if ((current_time - last_update_time) >= 0.05f) { // atleast 0.5s elapsed since last frame
             // do something every 0.5 seconds ..
             last_update_time = current_time;
+            strcpy(strB,"Score:");
             undergoSliding();
             p->applyForces(0.05f);
             applyForcesVillains(0.05f);
@@ -2441,6 +2579,10 @@ int main (int argc, char** argv)
             handleCollisionBonus();
             checkWinCollision();
             checkPan(window);
+            sprintf(str, "%d", score);   
+  			strcat(strB,str);
+ 			f1->setWord(strB);
+ 			if(lives == -1)looseFlag = true;
         }
     }
     //cout<<"Your Score "<<p->getScore()<<endl;
